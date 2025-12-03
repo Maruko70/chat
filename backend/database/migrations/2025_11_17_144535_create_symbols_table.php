@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('symbols', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('type'); // emoji, role_group_banner, gift_banner, name_banner, user_frame
+            $table->string('path'); // Storage path
+            $table->string('url'); // Public URL
+            $table->integer('priority')->default(0); // For ordering
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            
+            $table->index('type');
+            $table->index('is_active');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('symbols');
+    }
+};

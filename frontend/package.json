@@ -1,0 +1,32 @@
+{
+  "name": "frontend",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxt/icon": "^2.1.0",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@pinia/nuxt": "^0.11.3",
+    "@primeuix/themes": "^1.2.5",
+    "@vueuse/core": "^14.0.0",
+    "laravel-echo": "^2.2.6",
+    "moment": "^2.30.1",
+    "nuxt": "^4.2.1",
+    "pinia": "^3.0.4",
+    "primeicons": "^7.0.0",
+    "primevue": "^4.4.1",
+    "pusher-js": "^8.4.0",
+    "tailwindcss-primeui": "^0.6.1",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@primevue/nuxt-module": "^4.4.1"
+  }
+}

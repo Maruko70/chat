@@ -1,0 +1,10 @@
+/* Global font setup - apply first font in app/assets/fonts to whole site */
+/* Note: Currently only FontAwesome icon font exists, which is not suitable for text rendering */
+/* This file is kept for future text font additions */
+
+/* For now, use system fonts optimized for Arabic and Latin text */
+html, body, #__nuxt {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Cairo', 'Tajawal', 'Noto Sans Arabic', 'Arial', sans-serif;
+}
+
+

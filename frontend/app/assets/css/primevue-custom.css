@@ -1,0 +1,11 @@
+/* Custom PrimeVue Theme Overrides */
+
+/* Remove padding from sidebar drawer content */
+.p-drawer-content {
+  padding: 0 !important;
+}
+
+.p-sidebar-body {
+  padding: 0 !important;
+}
+

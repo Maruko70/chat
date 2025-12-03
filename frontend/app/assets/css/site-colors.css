@@ -1,0 +1,77 @@
+/* Site Colors CSS - Maps Tailwind classes to CSS variables */
+
+/* Primary color utilities */
+.bg-primary {
+  background-color: var(--site-primary-color, #450924) !important;
+}
+
+.text-primary {
+  color: var(--site-primary-color, #450924) !important;
+}
+
+.border-primary {
+  border-color: var(--site-primary-color, #450924) !important;
+}
+
+.hover\:bg-primary:hover {
+  background-color: var(--site-primary-color, #450924) !important;
+}
+
+.hover\:text-primary:hover {
+  color: var(--site-primary-color, #450924) !important;
+}
+
+.hover\:border-primary:hover {
+  border-color: var(--site-primary-color, #450924) !important;
+}
+
+/* Secondary color utilities */
+.bg-secondary {
+  background-color: var(--site-secondary-color, #ffffff) !important;
+}
+
+.text-secondary {
+  color: var(--site-secondary-color, #ffffff) !important;
+}
+
+.border-secondary {
+  border-color: var(--site-secondary-color, #ffffff) !important;
+}
+
+.hover\:bg-secondary:hover {
+  background-color: var(--site-secondary-color, #ffffff) !important;
+}
+
+.hover\:text-secondary:hover {
+  color: var(--site-secondary-color, #ffffff) !important;
+}
+
+.hover\:border-secondary:hover {
+  border-color: var(--site-secondary-color, #ffffff) !important;
+}
+
+/* Button color utilities */
+.bg-button {
+  background-color: var(--site-button-color, #3D0821) !important;
+}
+
+.text-button {
+  color: var(--site-button-color, #3D0821) !important;
+}
+
+.border-button {
+  border-color: var(--site-button-color, #3D0821) !important;
+}
+
+.hover\:bg-button:hover {
+  background-color: var(--site-button-color, #3D0821) !important;
+}
+
+.hover\:text-button:hover {
+  color: var(--site-button-color, #3D0821) !important;
+}
+
+.hover\:border-button:hover {
+  border-color: var(--site-button-color, #3D0821) !important;
+}
+
