@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Events\ProfileUpdated;
+use App\Events\UserStatusUpdated;
 use App\Services\WordFilterService;
+use App\Services\UserStatusService;
 use App\Traits\ChecksBans;
 
 class ProfileController extends Controller
@@ -36,6 +38,8 @@ class ProfileController extends Controller
             'image_border_color' => 'sometimes|nullable|array',
             'bio_color' => 'sometimes|nullable|array',
             'room_font_size' => 'sometimes|nullable|integer|min:10|max:24',
+            'incognito_mode_enabled' => 'sometimes|boolean',
+            'private_messages_enabled' => 'sometimes|boolean',
         ]);
 
         // Check for filtered words in name
@@ -102,6 +106,11 @@ class ProfileController extends Controller
 
         $user = $request->user();
         
+        // Track if privacy settings changed (for status broadcast)
+        $privacySettingsChanged = false;
+        $oldIncognitoMode = $user->incognito_mode_enabled ?? false;
+        $oldPrivateMessages = $user->private_messages_enabled ?? true;
+        
         // Handle name_bg_color specially (can be 'transparent' or RGB object)
         if (isset($validated['name_bg_color'])) {
             if ($validated['name_bg_color'] === 'transparent' || $validated['name_bg_color'] === null) {
@@ -114,6 +123,14 @@ class ProfileController extends Controller
             }
         }
         
+        // Check if privacy settings are being changed
+        if (isset($validated['incognito_mode_enabled']) && $validated['incognito_mode_enabled'] !== $oldIncognitoMode) {
+            $privacySettingsChanged = true;
+        }
+        if (isset($validated['private_messages_enabled']) && $validated['private_messages_enabled'] !== $oldPrivateMessages) {
+            $privacySettingsChanged = true;
+        }
+        
         $user->update($validated);
 
         // Load media relationship and role groups for avatar_url and permissions
@@ -121,6 +138,13 @@ class ProfileController extends Controller
         
         // Broadcast profile update event
         broadcast(new ProfileUpdated($user))->toOthers();
+        
+        // If privacy settings changed, broadcast status update to all users via global channel
+        if ($privacySettingsChanged) {
+            $statusService = app(UserStatusService::class);
+            $statusData = $statusService->getStatus($user->id);
+            broadcast(new UserStatusUpdated($user, $statusData['status']));
+        }
 
         return response()->json($user);
     }

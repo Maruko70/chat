@@ -76,6 +76,7 @@ class SystemMessage implements ShouldBroadcastNow
                 'email' => $this->user->email,
                 'avatar_url' => $systemMessagesImage ?: null, // Use system messages image instead of user avatar
                 'bio' => $this->user->bio,
+                'country_code' => $this->user->country_code,
                 'name_color' => $this->user->name_color,
                 'message_color' => $this->user->message_color,
                 'name_bg_color' => $this->user->name_bg_color,

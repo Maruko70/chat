@@ -51,6 +51,10 @@ class User extends Authenticatable implements HasMedia
         'ip_address',
         'country',
         'country_code',
+        'incognito_mode_enabled',
+        'private_messages_enabled',
+        'status',
+        'last_activity',
     ];
 
     /**
@@ -78,7 +82,7 @@ class User extends Authenticatable implements HasMedia
      *
      * @return array<string, string>
      */
-    protected function casts(): array
+        protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
@@ -94,6 +98,9 @@ class User extends Authenticatable implements HasMedia
             'designed_membership' => 'boolean',
             'verify_membership' => 'boolean',
             'is_blocked' => 'boolean',
+            'incognito_mode_enabled' => 'boolean',
+            'private_messages_enabled' => 'boolean',
+            'last_activity' => 'datetime',
         ];
     }
     
@@ -124,6 +131,22 @@ class User extends Authenticatable implements HasMedia
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
+    }
+
+    /**
+     * Get the private messages sent by the user.
+     */
+    public function sentPrivateMessages(): HasMany
+    {
+        return $this->hasMany(PrivateMessage::class, 'sender_id');
+    }
+
+    /**
+     * Get the private messages received by the user.
+     */
+    public function receivedPrivateMessages(): HasMany
+    {
+        return $this->hasMany(PrivateMessage::class, 'recipient_id');
     }
 
     /**

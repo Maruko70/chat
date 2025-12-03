@@ -63,6 +63,7 @@ class MessageSent implements ShouldBroadcastNow
                 'email' => $this->message->user->email,
                 'avatar_url' => $this->message->user->avatar_url,
                 'bio' => $this->message->user->bio,
+                'country_code' => $this->message->user->country_code,
                 'name_color' => $this->message->user->name_color,
                 'message_color' => $this->message->user->message_color,
                 'name_bg_color' => $this->message->user->name_bg_color,
@@ -98,6 +99,7 @@ class MessageSent implements ShouldBroadcastNow
                     'name' => $replyUser->name,
                     'username' => $replyUser->username,
                     'avatar_url' => $replyUser->avatar_url,
+                    'country_code' => $replyUser->country_code,
                 ];
             }
         }

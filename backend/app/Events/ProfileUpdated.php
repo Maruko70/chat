@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\User;
+use App\Services\UserStatusService;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
@@ -67,6 +68,7 @@ class ProfileUpdated implements ShouldBroadcastNow
                 'username' => $this->user->username,
                 'avatar_url' => $this->user->avatar_url,
                 'bio' => $this->user->bio,
+                'country_code' => $this->user->country_code,
                 'name_color' => $this->user->name_color,
                 'message_color' => $this->user->message_color,
                 'name_bg_color' => $this->user->name_bg_color,
@@ -76,6 +78,10 @@ class ProfileUpdated implements ShouldBroadcastNow
                 'gifts' => $this->user->gifts,
                 'group_role' => $this->user->group_role,
                 'is_guest' => $this->user->is_guest,
+                'incognito_mode_enabled' => $this->user->incognito_mode_enabled ?? false,
+                'private_messages_enabled' => $this->user->private_messages_enabled ?? true,
+                'status' => app(UserStatusService::class)->getStatus($this->user->id)['status'],
+                'last_activity' => app(UserStatusService::class)->getStatus($this->user->id)['last_activity'],
                 'role_groups' => $this->user->roleGroups->map(function ($roleGroup) {
                     return [
                         'id' => $roleGroup->id,

@@ -15,6 +15,10 @@ export interface User {
   designed_membership?: boolean
   verify_membership?: boolean
   is_blocked?: boolean
+  incognito_mode_enabled?: boolean
+  private_messages_enabled?: boolean
+  status?: 'active' | 'inactive_tab' | 'private_disabled' | 'away' | 'incognito'
+  last_activity?: number | null
   role_groups?: (RoleGroup & { pivot?: { expires_at?: string | null } })[]
   role_group_banner?: string | null
   all_permissions?: string[]
@@ -75,6 +79,33 @@ export interface Message {
   }
   created_at: string
   updated_at: string
+}
+
+export interface PrivateMessage {
+  id: number
+  sender_id: number
+  recipient_id: number
+  sender?: User
+  recipient?: User
+  content: string
+  meta?: any
+  read_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Conversation {
+  user: User
+  last_message?: {
+    id: number
+    content: string
+    sender_id: number
+    created_at: string
+    read_at?: string | null
+  } | null
+  unread_count: number
+  message_count: number
+  last_message_at: string
 }
 
 export interface RoleGroup {

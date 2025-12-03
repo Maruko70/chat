@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RoomController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\PrivateMessageController;
 use App\Http\Controllers\WallPostController;
 use App\Http\Controllers\YouTubeController;
 use App\Http\Controllers\RoleGroupController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\FilteredWordController;
 use App\Http\Controllers\FilteredWordViolationController;
 use App\Http\Controllers\UserWarningController;
 use App\Http\Controllers\BootstrapController;
+use App\Http\Controllers\UserStatusController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -84,6 +86,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // Message routes
     Route::get('/chat/{roomId}/messages', [MessageController::class, 'index']);
     Route::post('/chat/{roomId}/messages', [MessageController::class, 'store']);
+    
+    // Private message routes
+    Route::prefix('private-messages')->group(function () {
+        Route::get('/', [PrivateMessageController::class, 'index']); // Get conversations list
+        Route::get('/unread-count', [PrivateMessageController::class, 'unreadCount']); // Get unread count
+        Route::get('/{userId}', [PrivateMessageController::class, 'show']); // Get messages with a user
+        Route::post('/{userId}', [PrivateMessageController::class, 'store']); // Send message to a user
+        Route::post('/{userId}/read', [PrivateMessageController::class, 'markAsRead']); // Mark messages as read
+    });
     
     // Wall posts routes
     Route::get('/chat/{roomId}/wall-posts', [WallPostController::class, 'index']);
@@ -196,6 +207,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/user/{userId}', [UserWarningController::class, 'getUserWarnings']); // Admin: get user's warnings
         Route::post('/', [UserWarningController::class, 'store']); // Admin: create manual warning
         Route::delete('/{id}', [UserWarningController::class, 'destroy']); // Admin: delete warning
+    });
+    
+    // User status routes (optimized for high-frequency updates)
+    Route::prefix('user-status')->group(function () {
+        Route::match(['PUT', 'POST'], '/', [UserStatusController::class, 'update']); // Update current user's status (supports sendBeacon)
+        Route::post('/multiple', [UserStatusController::class, 'getMultiple']); // Get multiple user statuses
     });
 });
 

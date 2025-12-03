@@ -679,11 +679,7 @@ const fetchUsers = async () => {
     params.append('per_page', perPage.value.toString())
     
     const queryString = params.toString()
-    console.log('Fetching users with query:', queryString)
     const response = await $api(`/users?${queryString}`)
-    console.log('Users response:', response)
-    console.log('Response type:', typeof response)
-    console.log('Response keys:', Object.keys(response || {}))
     
     // Laravel paginate() returns: { data: [...], total: X, per_page: Y, current_page: Z, ... }
     // Handle both direct response and nested response.data
@@ -705,23 +701,13 @@ const fetchUsers = async () => {
       total = response.length
     }
     
-    console.log('Extracted usersData:', usersData)
-    console.log('Extracted total:', total)
-    console.log('Extracted current_page:', currentPageFromResponse)
-    
     // Assign the data
     users.value = usersData
     totalRecords.value = total
     currentPage.value = currentPageFromResponse
     
-    console.log(`Loaded ${users.value.length} users out of ${totalRecords.value} total`)
-    console.log('Users array:', users.value)
-    console.log('Users array length:', users.value.length)
-    console.log('Current page:', currentPage.value, 'Per page:', perPage.value)
-    
     // Force reactivity update
     await nextTick()
-    console.log('After nextTick - Users:', users.value.length, 'Total records:', totalRecords.value)
   } catch (error: any) {
     console.error('Error fetching users:', error)
     console.error('Error details:', {
@@ -743,7 +729,6 @@ const fetchUsers = async () => {
 }
 
 const onPageChange = (event: any) => {
-  console.log('Page change event:', event)
   // PrimeVue DataTable uses 0-based page index
   currentPage.value = event.page + 1
   perPage.value = event.rows

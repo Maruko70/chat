@@ -60,6 +60,7 @@ class WallPostSent implements ShouldBroadcastNow
                 'email' => $this->wallPost->user->email,
                 'avatar_url' => $this->wallPost->user->avatar_url,
                 'bio' => $this->wallPost->user->bio,
+                'country_code' => $this->wallPost->user->country_code,
                 'name_color' => $this->wallPost->user->name_color,
                 'message_color' => $this->wallPost->user->message_color,
                 'name_bg_color' => $this->wallPost->user->name_bg_color,

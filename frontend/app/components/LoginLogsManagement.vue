@@ -145,11 +145,7 @@ const fetchLogs = async () => {
     }
 
     const queryString = params.toString()
-    console.log('Fetching login logs with query:', queryString)
     const response = await $api(`/login-logs?${queryString}`)
-    console.log('Login logs response:', response)
-    console.log('Response type:', typeof response)
-    console.log('Response keys:', Object.keys(response || {}))
 
     // Handle Laravel pagination response
     let logsData = []
@@ -165,10 +161,6 @@ const fetchLogs = async () => {
       logsData = []
       total = 0
     }
-
-    console.log('Extracted logsData:', logsData)
-    console.log('Extracted total:', total)
-    console.log(`Loaded ${logsData.length} logs out of ${total} total`)
 
     logs.value = logsData
     totalRecords.value = total
@@ -192,7 +184,6 @@ const debouncedSearch = useDebounceFn(() => {
 }, 500)
 
 const onPageChange = (event: any) => {
-  console.log('Page change event:', event)
   // PrimeVue DataTable uses 0-based page index
   currentPage.value = event.page + 1
   perPage.value = event.rows

@@ -17,7 +17,10 @@ class ResponseObfuscationService
             \Log::debug('ResponseObfuscationService: Using key base', [
                 'key_length' => strlen($key),
                 'key_preview' => substr($key, 0, 10) . '...',
+                'key_full' => $key, // Log full key in dev for debugging
                 'is_default' => $key === 'CHAT_OBFUSCATION_KEY_2025',
+                'expected' => 'H4YB0XdaflQ3AKm7Lc5xku2TbpRj9Gsy',
+                'matches' => $key === 'H4YB0XdaflQ3AKm7Lc5xku2TbpRj9Gsy',
             ]);
         }
         

@@ -200,7 +200,7 @@
                       <div class="flex items-center mx-2">
                         <img
                           v-if="user.country_code"
-                          :src="getFlagImageUrl(user.country_code)"
+                          :src="`/flags/${user.country_code.toLowerCase()}.png`"
                           :alt="user.country_code"
                           class="w-5 h-4 object-contain"
                           @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
@@ -425,7 +425,6 @@ onMounted(async () => {
   // Load active users for display (non-blocking)
   try {
     await chatStore.fetchActiveUsers()
-    console.log('Active users loaded:', chatStore.activeUsers.length)
   } catch (error) {
     console.error('Error loading active users:', error)
   }
@@ -437,7 +436,6 @@ onMounted(async () => {
     const echo = getEcho()
     
     if (echo) {
-      console.log('Initializing Echo for profile updates on home page')
       
       // Track connection state - access Pusher through Echo's connector
       try {
@@ -450,22 +448,18 @@ onMounted(async () => {
           
           // Listen for connection events
           pusher.connection.bind('connected', () => {
-            console.log('✅ Socket connected')
             chatStore.setConnected(true)
           })
           
           pusher.connection.bind('disconnected', () => {
-            console.log('❌ Socket disconnected')
             chatStore.setConnected(false)
           })
           
           pusher.connection.bind('error', () => {
-            console.log('❌ Socket connection error')
             chatStore.setConnected(false)
           })
           
           pusher.connection.bind('state_change', (states: any) => {
-            console.log('🔄 Socket state changed:', states.previous, '->', states.current)
             chatStore.setConnected(states.current === 'connected')
           })
         } else {
@@ -481,15 +475,12 @@ onMounted(async () => {
       const presenceChannel = echo.join('presence')
       
       presenceChannel.subscribed(() => {
-        console.log('✅ Subscribed to global presence channel for profile updates')
         
         // Set up listener after subscription is confirmed
         presenceChannel.listen('.profile.updated', (data: any) => {
-          console.log('📢 Received profile update event on home page:', data)
           if (data.user && data.user.id) {
             // Update user in active users list
             chatStore.updateActiveUser(data.user)
-            console.log('✅ Updated user in active users list:', data.user.id)
           }
         })
       })
@@ -500,11 +491,9 @@ onMounted(async () => {
       
       // Also set up listener immediately (in case subscribed() doesn't fire)
       presenceChannel.listen('.profile.updated', (data: any) => {
-        console.log('📢 Received profile update event on home page (immediate listener):', data)
         if (data.user && data.user.id) {
           // Update user in active users list
           chatStore.updateActiveUser(data.user)
-          console.log('✅ Updated user in active users list:', data.user.id)
         }
       })
 
@@ -513,15 +502,12 @@ onMounted(async () => {
         const userPrivateChannel = echo.private(`user.${authStore.user.id}`)
         
         userPrivateChannel.subscribed(() => {
-          console.log('✅ Subscribed to private user channel for ban events:', `user.${authStore.user?.id}`)
         })
 
         // Listen for ban event (inside subscribed callback)
         userPrivateChannel.subscribed(() => {
-          console.log('✅ Subscribed to private user channel for ban events:', `user.${authStore.user?.id}`)
           
           userPrivateChannel.listen('.user.banned', async (data: any) => {
-            console.log('🚫 Received ban event on home page (subscribed):', data)
             
             try {
               // Clear auth and disconnect Echo
@@ -550,7 +536,6 @@ onMounted(async () => {
 
         // Also set up listener immediately (in case subscribed() doesn't fire)
         userPrivateChannel.listen('.user.banned', async (data: any) => {
-          console.log('🚫 Received ban event on home page (immediate):', data)
           
           try {
             // Clear auth and disconnect Echo
@@ -581,7 +566,6 @@ onMounted(async () => {
       chatStore.setConnected(false)
     }
   } else {
-    console.log('ℹ️ Not authenticated or no token, skipping Echo setup for profile updates')
     chatStore.setConnected(false)
   }
 
@@ -606,7 +590,6 @@ onUnmounted(() => {
     const echo = getEcho()
     if (echo) {
       echo.leave('presence')
-      console.log('Left presence channel on home page')
     }
   } else {
     // If not authenticated, ensure connection state is false

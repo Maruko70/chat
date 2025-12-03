@@ -183,8 +183,20 @@ class RoomController extends Controller
                 $room->load('users');
                 // Broadcast user presence
                 broadcast(new UserPresence($request->user(), 'online', $room->id))->toOthers();
-                // Broadcast system message for user joining (without toOthers so joining user also sees it)
-                broadcast(new SystemMessage($request->user(), $room->id, 'joined'));
+                
+                // Only broadcast "joined" message if user wasn't in any other room (reconnect scenario)
+                // If user was in another room, it's a "moved" action (handled by the loop above)
+                $wasInOtherRoom = !empty($allUserRooms);
+                if (!$wasInOtherRoom) {
+                    // User is joining/reconnecting (not moving from another room)
+                    broadcast(new SystemMessage($request->user(), $room->id, 'joined'));
+                } else {
+                    // User moved from another room - broadcast "moved" message instead
+                    $previousRoomId = $allUserRooms->first()->room_id ?? null;
+                    if ($previousRoomId) {
+                        broadcast(new SystemMessage($request->user(), $room->id, 'moved', (int)$previousRoomId));
+                    }
+                }
 
             } else {
                 // Update last_activity for existing member

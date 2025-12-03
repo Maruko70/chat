@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Room;
+use App\Services\UserStatusService;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -27,6 +28,10 @@ Broadcast::channel('room.{roomId}', function ($user, $roomId) {
     // Load user media relationship and role groups
     $user->load('media', 'roleGroups', 'membershipBackground', 'membershipFrame');
     
+    // Get user status from cache (fast, doesn't block)
+    $statusService = app(UserStatusService::class);
+    $statusData = $statusService->getStatus($user->id);
+    
     // Check if user is a member of the room
     $room = Room::find($roomId);
     if (!$room) {
@@ -41,6 +46,7 @@ Broadcast::channel('room.{roomId}', function ($user, $roomId) {
         'bio' => $user->bio,
         'social_media_type' => $user->social_media_type,
         'social_media_url' => $user->social_media_url,
+        'country_code' => $user->country_code,
         'name_color' => $user->name_color,
         'message_color' => $user->message_color,
         'name_bg_color' => $user->name_bg_color,
@@ -51,6 +57,10 @@ Broadcast::channel('room.{roomId}', function ($user, $roomId) {
         'premium_entry' => $user->premium_entry,
         'premium_entry_background' => $user->premium_entry_background,
         'designed_membership' => $user->designed_membership,
+        'incognito_mode_enabled' => $user->incognito_mode_enabled ?? false,
+        'private_messages_enabled' => $user->private_messages_enabled ?? true,
+        'status' => $statusData['status'],
+        'last_activity' => $statusData['last_activity'],
         'membership_background' => $user->membershipBackground ? [
             'id' => $user->membershipBackground->id,
             'name' => $user->membershipBackground->name,
@@ -109,6 +119,10 @@ Broadcast::channel('presence', function ($user) {
     // Load user media relationship and role groups
     $user->load('media', 'roleGroups', 'membershipBackground', 'membershipFrame');
     
+    // Get user status from cache (fast, doesn't block)
+    $statusService = app(UserStatusService::class);
+    $statusData = $statusService->getStatus($user->id);
+    
     // Return full user data for presence channel
     return [
         'id' => $user->id,
@@ -118,6 +132,7 @@ Broadcast::channel('presence', function ($user) {
         'bio' => $user->bio,
         'social_media_type' => $user->social_media_type,
         'social_media_url' => $user->social_media_url,
+        'country_code' => $user->country_code,
         'name_color' => $user->name_color,
         'message_color' => $user->message_color,
         'name_bg_color' => $user->name_bg_color,
@@ -129,6 +144,10 @@ Broadcast::channel('presence', function ($user) {
         'premium_entry' => $user->premium_entry,
         'premium_entry_background' => $user->premium_entry_background,
         'designed_membership' => $user->designed_membership,
+        'incognito_mode_enabled' => $user->incognito_mode_enabled ?? false,
+        'private_messages_enabled' => $user->private_messages_enabled ?? true,
+        'status' => $statusData['status'],
+        'last_activity' => $statusData['last_activity'],
         'membership_background' => $user->membershipBackground ? [
             'id' => $user->membershipBackground->id,
             'name' => $user->membershipBackground->name,

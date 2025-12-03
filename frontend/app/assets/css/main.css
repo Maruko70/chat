@@ -1,0 +1,12 @@
+
+@font-face{
+    font-family: 'default';
+    src: url('/fonts/default.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+body, html, #__nuxt {
+    font-family: 'default' !important;
+}

@@ -368,9 +368,13 @@
               <span class="text-[12px] sm:text-[14px] font-medium">{{ onlineCount }}</span>
             </button>
             <button @click="showPrivateMessages = true"
-              class="btn-styled flex items-center text-white border border-white px-1.5 sm:px-4 py-0.5 sm:py-1 rounded-tr rounded-bl hover:text-gray-200 transition flex-shrink-0 whitespace-nowrap">
+              class="btn-styled flex items-center text-white border border-white px-1.5 sm:px-4 py-0.5 sm:py-1 rounded-tr rounded-bl hover:text-gray-200 transition flex-shrink-0 whitespace-nowrap relative">
               <i class="pi pi-comment text-xs sm:text-sm mx-0.5 sm:mx-2"></i>
               <span class="text-[12px] sm:text-[14px] font-medium">خاص</span>
+              <Badge v-if="privateMessagesStore.unreadCount > 0" 
+                :value="privateMessagesStore.unreadCount" 
+                severity="danger" 
+                class="absolute -top-1 -right-1" />
             </button>
             <button @click="showRoomsList = true"
               class="btn-styled flex items-center text-white border border-white px-1.5 sm:px-4 py-0.5 sm:py-1 rounded-tr rounded-bl flex-shrink-0 whitespace-nowrap">
@@ -486,7 +490,7 @@
                     ></div>
                     <img
                       v-if="user.country_code"
-                      :src="getFlagImageUrl(user.country_code)"
+                      :src="`/flags/${user.country_code.toLowerCase()}.png`"
                       :alt="user.country_code"
                       class="w-5 h-4 object-contain"
                       @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
@@ -563,7 +567,7 @@
                       <span class="text-xs text-gray-400">#{{ user.id }}</span>
                       <img
                         v-if="user.country_code"
-                        :src="getFlagImageUrl(user.country_code)"
+                        :src="`/flags/${user.country_code.toLowerCase()}.png`"
                         :alt="user.country_code"
                         class="w-5 h-4 object-contain"
                         @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
@@ -589,22 +593,33 @@
       <template #header>
         <div class="flex items-center justify-between w-full">
           <h2 class="text-lg font-bold">الرسائل الخاصة</h2>
-          <Button icon="pi pi-times" text rounded @click="showPrivateMessages = false" />
+          <div class="flex items-center gap-2">
+            <Badge v-if="privateMessagesStore.unreadCount > 0" :value="privateMessagesStore.unreadCount" severity="danger" />
+            <Button icon="pi pi-times" text rounded @click="showPrivateMessages = false" />
+          </div>
         </div>
       </template>
       <div class="space-y-2">
-        <div v-if="privateChats.length === 0" class="text-center py-8 text-gray-500">
+        <div v-if="privateMessagesStore.loading" class="text-center py-8 text-gray-500">
+          جاري التحميل...
+        </div>
+        <div v-else-if="privateMessagesStore.conversations.length === 0" class="text-center py-8 text-gray-500">
           لا توجد رسائل خاصة
         </div>
-        <div v-for="chat in privateChats" :key="chat.id"
+        <div v-else v-for="conversation in privateMessagesStore.conversations" :key="conversation.user.id"
           class="flex items-center gap-3 p-3 hover:bg-gray-100 rounded cursor-pointer"
-          @click="openPrivateChat(chat.user as { id: number; name?: string; username?: string; avatar_url?: string })">
-          <Avatar :image="chat.user.avatar_url" shape="circle" class="w-10 h-10" />
-          <div class="flex-1">
-            <div class="font-medium">{{ chat.user.name || chat.user.username }}</div>
-            <div class="text-sm text-gray-500 truncate">{{ chat.lastMessage }}</div>
+          @click="openPrivateChat(conversation.user)">
+          <div class="relative">
+            <Avatar :image="conversation.user.avatar_url || getDefaultUserImage()" shape="circle" class="w-10 h-10" />
+            <Badge v-if="conversation.unread_count > 0" :value="conversation.unread_count" severity="danger" class="absolute -top-1 -right-1" />
           </div>
-          <div class="text-xs text-gray-400">{{ chat.time }}</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-medium truncate">{{ conversation.user.name || conversation.user.username }}</div>
+            <div class="text-sm text-gray-500 truncate">{{ conversation.last_message?.content || '' }}</div>
+          </div>
+          <div class="text-xs text-gray-400 whitespace-nowrap">
+            {{ moment(conversation.last_message_at).fromNow() }}
+          </div>
         </div>
       </div>
     </Sidebar>
@@ -2190,6 +2205,10 @@
               <label class="text-sm">تفعيل الرسائل الخاصة</label>
               <InputSwitch v-model="settingsStore.privateMessagesEnabled" />
             </div>
+            <div v-if="hasPermission(authStore.user, 'incognito_mode')" class="flex items-center justify-between">
+              <label class="text-sm">تفعيل وضع التخفي</label>
+              <InputSwitch v-model="incognitoModeEnabled" />
+            </div>
             <div class="flex items-center justify-between">
               <label class="text-sm">تفعيل الإشعارات</label>
               <InputSwitch v-model="settingsStore.notificationsEnabled" />
@@ -2322,7 +2341,7 @@
         <!-- User Flag and Country -->
         <div v-if="selectedUser?.country_code" class="flex items-center justify-center gap-2">
           <img
-            :src="getFlagImageUrl(selectedUser.country_code)"
+            :src="`/flags/${selectedUser.country_code.toLowerCase()}.png`"
             :alt="selectedUser.country_code"
             class="w-8 h-6 object-contain"
             @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
@@ -2339,6 +2358,8 @@
               size="small"
               class="flex-1 min-w-[120px]"
               @click="openPrivateChat(selectedUser!)"
+              :disabled="!selectedUser?.private_messages_enabled || selectedUser?.id === authStore.user?.id || !authStore.user?.private_messages_enabled"
+              v-tooltip.top="!selectedUser?.private_messages_enabled ? 'المستخدم قام بإيقاف الرسائل الخاصة' : selectedUser?.id === authStore.user?.id ? 'لا يمكنك إرسال رسالة لنفسك' : !authStore.user?.private_messages_enabled ? 'الرسائل الخاصة معطلة في حسابك' : 'إرسال رسالة خاصة'"
             />
             <Button 
               label="إشعار" 
@@ -2730,6 +2751,153 @@
         ></iframe>
       </div>
     </Dialog>
+
+    <!-- Private Message Modal -->
+    <Dialog 
+      v-model:visible="showPrivateMessageModal" 
+      modal 
+      :style="{ width: '90vw', maxWidth: '750px', height: '80vh' }"
+      :closable="true"
+      class="p-fluid"
+      @hide="closePrivateMessageModal"
+    >
+      <template #header>
+        <div class="flex items-center justify-between w-full">
+          <div class="flex items-center gap-3">
+            <Avatar 
+              :image="privateMessagesStore.currentConversation?.avatar_url || getDefaultUserImage()" 
+              shape="circle" 
+              class="w-10 h-10" 
+            />
+            <div>
+              <div class="font-bold text-lg">
+                {{ privateMessagesStore.currentConversation?.name || privateMessagesStore.currentConversation?.username }}
+              </div>
+              <div v-if="privateMessagesStore.currentConversation?.bio" class="text-sm text-gray-500">
+                {{ privateMessagesStore.currentConversation.bio }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+      
+      <div class="flex flex-col h-full" style="height: calc(80vh - 120px);">
+        <!-- Messages Container -->
+        <div ref="privateMessagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 rounded-lg">
+          <div v-if="privateMessagesStore.currentConversationMessages.length === 0" class="text-center py-8 text-gray-500">
+            لا توجد رسائل. ابدأ المحادثة الآن!
+          </div>
+          <div v-for="message in privateMessagesStore.currentConversationMessages" :key="message.id"
+            class="flex"
+            :class="message.sender_id === authStore.user?.id ? 'justify-end' : 'justify-start'">
+            <div class="max-w-[70%] flex gap-2" :class="message.sender_id === authStore.user?.id ? 'flex-row-reverse' : 'flex-row'">
+              <Avatar v-if="message.sender_id !== authStore.user?.id" 
+                :image="message.sender?.avatar_url || getDefaultUserImage()" 
+                shape="circle" 
+                class="w-8 h-8 flex-shrink-0" />
+              <div class="rounded-lg p-3 shadow-sm"
+                :class="message.sender_id === authStore.user?.id 
+                  ? 'bg-blue-500 text-white' 
+                  : 'bg-white text-gray-900 border border-gray-200'">
+                <!-- Image if present -->
+                <img 
+                  v-if="message.meta?.image" 
+                  :src="message.meta.image" 
+                  :alt="message.meta.image_name || 'صورة'"
+                  class="max-w-full max-h-64 rounded mb-2"
+                />
+                <!-- Message content with emojis -->
+                <div class="text-sm whitespace-pre-wrap break-words">
+                  <template v-for="(part, index) in parseMessageWithEmojis(message.content)" :key="index">
+                    <img v-if="part.type === 'emoji' && part.emojiId !== undefined" 
+                      :src="getEmojiPath(part.emojiId)"
+                      :alt="`:${part.emojiId}:`" 
+                      class="inline-block w-4 h-4 align-middle" />
+                    <span v-else-if="part.type === 'text'" class="inline">
+                      {{ part.text }}
+                    </span>
+                  </template>
+                </div>
+                <div class="text-xs mt-1 flex items-center gap-1"
+                  :class="message.sender_id === authStore.user?.id ? 'text-blue-100' : 'text-gray-500'">
+                  {{ moment(message.created_at).format('HH:mm') }}
+                  <i v-if="message.sender_id === authStore.user?.id && message.read_at" class="pi pi-check-double"></i>
+                  <i v-else-if="message.sender_id === authStore.user?.id" class="pi pi-check"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Message Input -->
+        <div class="border-t p-3 bg-white">
+          <div class="flex gap-2 items-center">
+            <Button 
+              ref="privateEmojiButton" 
+              type="button" 
+              rounded 
+              severity="secondary" 
+              class="flex-shrink-0 !p-0 w-8 h-8"
+              @click="privateEmojiPanel.toggle($event)" 
+              v-tooltip.top="'لوحة الإيموجي'"
+            >
+              <img 
+                :src="emojiList.length > 0 ? getEmojiPath(emojiList[0]) : getEmojiPath(0)" 
+                width="20" 
+                height="20" 
+                class="!p-0"
+                alt="Emoji"
+              >
+            </Button>
+            <InputText 
+              ref="privateMessageInput"
+              v-model="privateMessageContent" 
+              placeholder="اكتب رسالة..."
+              class="flex-1"
+              @keyup.enter="sendPrivateMessage"
+              :disabled="sendingPrivateMessage"
+            />
+            <FileUpload
+              mode="basic"
+              accept="image/*"
+              :maxFileSize="5000000"
+              :auto="true"
+              chooseLabel=""
+              class="flex-shrink-0"
+              @select="onPrivateMessageFileSelect"
+              v-tooltip.top="'إرسال صورة'"
+            >
+              <template #chooseicon>
+                <i class="pi pi-image text-lg"></i>
+              </template>
+            </FileUpload>
+            <Button 
+              icon="pi pi-send" 
+              @click="sendPrivateMessage"
+              :loading="sendingPrivateMessage"
+              :disabled="!privateMessageContent.trim() && !privateMessageImageFile"
+            />
+          </div>
+          
+          <!-- Emoji Panel Popup -->
+          <OverlayPanel ref="privateEmojiPanel" class="emoji-panel">
+            <div class="w-80 max-h-96 overflow-y-auto">
+              <div v-if="emojiList.length === 0" class="p-4 text-center text-gray-500">
+                <p class="text-sm">لا توجد إيموجي متاحة</p>
+                <p class="text-xs mt-2">يرجى إضافة إيموجي من لوحة التحكم</p>
+              </div>
+              <div v-else class="grid grid-cols-8 gap-2 p-2">
+                <button v-for="emojiId in emojiList" :key="emojiId" @click="insertPrivateEmoji(emojiId)"
+                  class="w-10 h-10 p-1 hover:bg-gray-100 rounded transition flex items-center justify-center"
+                  type="button">
+                  <img :src="getEmojiPath(emojiId)" :alt="`Emoji ${emojiId}`" class="w-full h-full object-contain" />
+                </button>
+              </div>
+            </div>
+          </OverlayPanel>
+        </div>
+      </div>
+    </Dialog>
   </div>
 </template>
 
@@ -2738,7 +2906,7 @@
 import moment from 'moment'
 import { useToast } from 'primevue/usetoast'
 // @ts-ignore
-import type { Message, User, Room, RoleGroup } from '~/types'
+import type { Message, User, Room, RoleGroup, PrivateMessage, Conversation } from '~/types'
 import { getFlagImageUrl } from '~~/app/utils/flagImage'
 
 definePageMeta({
@@ -2749,6 +2917,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
+const privateMessagesStore = usePrivateMessagesStore()
 const settingsStore = useSettingsStore()
 const { getEcho, initEcho, disconnect } = useEcho()
 const toast = useToast()
@@ -2771,7 +2940,6 @@ const sortedMessages = computed(() => {
   if (import.meta.dev) {
     const systemCount = allMessages.filter((m: Message) => m.meta?.is_system || m.meta?.is_welcome_message).length
     const welcomeCount = allMessages.filter((m: Message) => m.meta?.is_welcome_message).length
-    console.log('[sortedMessages] Total messages:', allMessages.length, 'System:', systemCount, 'Welcome:', welcomeCount)
   }
   
   return allMessages.sort((a: Message, b: Message) => {
@@ -2826,6 +2994,10 @@ const peekRecentDeparture = (userId: number) => {
 let isSubscribed = false
 const emojiButton = ref()
 const emojiPanel = ref()
+const privateEmojiButton = ref()
+const privateEmojiPanel = ref()
+const privateMessageInput = ref()
+const privateMessageImageFile = ref<File | null>(null)
 const replyingTo = ref<Message | null>(null)
 const isManualDisconnect = ref(false) // Track if user manually disconnected
 const wasDisconnected = ref(false) // Track if socket was disconnected (for reconnect detection)
@@ -3174,15 +3346,6 @@ const getRoomNameColor = (room: Room): string => {
   
   const roomSettings = parseRoomSettings(room)
   
-  // Debug: log first few rooms to see what's happening
-  if (room.id && room.id <= 3) {
-    console.log(`Room ${room.id} getRoomNameColor:`, {
-      hasSettings: !!room.settings,
-      settingsType: typeof room.settings,
-      parsedSettings: roomSettings,
-      roomNameColor: roomSettings?.roomNameColor,
-    })
-  }
   
   if (roomSettings?.roomNameColor) {
     let color = String(roomSettings.roomNameColor).trim()
@@ -3203,14 +3366,7 @@ const getRoomNameColor = (room: Room): string => {
     
     // Validate color format
     if (color && (color.startsWith('#') || color.startsWith('rgb') || color.startsWith('rgba'))) {
-      if (room.id && room.id <= 3) {
-        console.log(`Room ${room.id} returning color:`, color)
-      }
       return color
-    } else {
-      if (room.id && room.id <= 3) {
-        console.log(`Room ${room.id} invalid color format:`, color)
-      }
     }
   }
   
@@ -3371,20 +3527,27 @@ watch(showUsersSidebar, async (isOpen) => {
     
     try {
       await chatStore.fetchActiveUsers()
-      console.log('[Users Sidebar] Fetched active users:', chatStore.displayActiveUsers.length)
     } catch (error) {
-      console.error('[Users Sidebar] Error fetching active users:', error)
+      console.error('[Users] Error fetching active users:', error)
     }
   }
 })
 
-watch(showPrivateMessages, (isOpen) => {
+watch(showPrivateMessages, async (isOpen) => {
   if (isOpen) {
     // Close other sidebars
     showUsersSidebar.value = false
     showRoomsList.value = false
     showWall.value = false
     showSettings.value = false
+    
+    // Fetch conversations
+    try {
+      await privateMessagesStore.fetchConversations()
+      await privateMessagesStore.fetchUnreadCount()
+    } catch (error) {
+      console.error('Error fetching conversations:', error)
+    }
   }
 })
 
@@ -3433,19 +3596,10 @@ const otherRoomsUsers = computed(() => {
   const currentRoomUserIds = new Set((chatStore.currentRoom?.users || []).map((u: User) => u.id))
   const allActiveUsers = chatStore.displayActiveUsers || []
   
-  // Debug logging
-  if (import.meta.dev) {
-    console.log('[Users Sidebar] Current room user IDs:', Array.from(currentRoomUserIds))
-    console.log('[Users Sidebar] All active users:', allActiveUsers.length)
-    console.log('[Users Sidebar] Active users:', allActiveUsers.map((u: User) => ({ id: u.id, name: u.name || u.username })))
-  }
+
   
   const otherUsers = allActiveUsers.filter((user: User) => !currentRoomUserIds.has(user.id))
-  
-  if (import.meta.dev) {
-    console.log('[Users Sidebar] Other rooms users:', otherUsers.length)
-    console.log('[Users Sidebar] Other rooms users list:', otherUsers.map((u: User) => ({ id: u.id, name: u.name || u.username })))
-  }
+
   
   if (!userSearchQuery.value) return otherUsers
   const query = userSearchQuery.value.toLowerCase()
@@ -3475,7 +3629,6 @@ const showPremiumEntryNotification = (user: any) => {
 
   
   if (hasPremiumEntry) {
-    console.log('✅ [PREMIUM ENTRY] User has premium_entry enabled, proceeding...')
     
     // Use authStore data for current user to ensure we have premium_entry_background
     let finalUser = user
@@ -3488,19 +3641,16 @@ const showPremiumEntryNotification = (user: any) => {
         premium_entry: authStore.user.premium_entry,
         premium_entry_background: authStore.user.premium_entry_background || null,
       }
-      console.log('👤 [PREMIUM ENTRY] Using authStore data for current user:', finalUser)
     }
     
     // Ensure background URL is properly formatted
     let backgroundUrl = finalUser.premium_entry_background || null
-    console.log('🎨 [PREMIUM ENTRY] backgroundUrl before formatting:', backgroundUrl)
     
     if (backgroundUrl && !backgroundUrl.startsWith('http') && !backgroundUrl.startsWith('/')) {
       // If it's a relative path, make it absolute
       const config = useRuntimeConfig()
       const baseUrl = config.public.apiBaseUrl || ''
       backgroundUrl = `${baseUrl}${backgroundUrl.startsWith('/') ? '' : '/'}${backgroundUrl}`
-      console.log('🎨 [PREMIUM ENTRY] backgroundUrl after formatting:', backgroundUrl)
     }
     
     const notification: PremiumEntryNotification = {
@@ -3516,26 +3666,15 @@ const showPremiumEntryNotification = (user: any) => {
       background: backgroundUrl,
     }
     
-    console.log('✨ [PREMIUM ENTRY] Creating notification object:', notification)
-    console.log('📋 [PREMIUM ENTRY] Current notifications array length:', premiumEntryNotifications.value.length)
-    console.log('📋 [PREMIUM ENTRY] Current notifications:', JSON.stringify(premiumEntryNotifications.value))
     premiumEntryNotifications.value.push(notification)
-    console.log('✅ [PREMIUM ENTRY] Notification added! New array length:', premiumEntryNotifications.value.length)
-    console.log('📋 [PREMIUM ENTRY] Full notifications array after push:', JSON.stringify(premiumEntryNotifications.value))
     
     // Auto-remove after 5 seconds
     setTimeout(() => {
-      console.log('⏰ [PREMIUM ENTRY] Removing notification after 5 seconds:', notification.id)
       const index = premiumEntryNotifications.value.findIndex(n => n.id === notification.id)
       if (index !== -1) {
         premiumEntryNotifications.value.splice(index, 1)
-        console.log('🗑️ [PREMIUM ENTRY] Notification removed. Remaining:', premiumEntryNotifications.value.length)
       }
     }, 5000)
-  } else {
-    console.log('❌ [PREMIUM ENTRY] User does not have premium_entry enabled')
-    console.log('❌ [PREMIUM ENTRY] user.premium_entry:', user.premium_entry)
-    console.log('❌ [PREMIUM ENTRY] authStore.user?.premium_entry:', authStore.user?.premium_entry)
   }
 }
 
@@ -4076,7 +4215,6 @@ const getRoleGroupNameById = (groupId: number): string => {
 const notifyUser = async () => {
   if (!selectedUser.value) return
   // TODO: Implement notification API call
-  console.log('Notify user:', selectedUser.value.id)
 }
 
 const likeUser = async () => {
@@ -4096,7 +4234,6 @@ const likeUser = async () => {
 const sendGift = async () => {
   if (!selectedUser.value) return
   // TODO: Implement gift sending
-  console.log('Send gift to user:', selectedUser.value.id)
 }
 
 const deleteUserPhoto = async () => {
@@ -4115,7 +4252,6 @@ const deleteUserPhoto = async () => {
 const setUserBanner = async () => {
   if (!selectedUser.value) return
   // TODO: Implement banner setting
-  console.log('Set banner for user:', selectedUser.value.id)
 }
 
 const kickFromRoom = async () => {
@@ -4422,17 +4558,8 @@ const filteredRoomsList = computed(() => {
 const fetchRoomsList = async () => {
   try {
     const rooms = await chatStore.fetchRooms()
-    console.log('Fetched rooms:', rooms?.length, 'rooms')
     // Debug: check first room's settings
-    if (rooms && rooms.length > 0) {
-      console.log('First room settings:', {
-        roomId: rooms[0].id,
-        roomName: rooms[0].name,
-        hasSettings: !!rooms[0].settings,
-        settings: rooms[0].settings,
-        settingsType: typeof rooms[0].settings,
-      })
-    }
+
   } catch (error) {
     console.error('Error fetching rooms:', error)
   }
@@ -4511,10 +4638,6 @@ watch(showRoomSettingsModal, (isOpen) => {
       useImageAsBanner: room.settings?.useImageAsBanner ?? false,
     }
     
-    console.log('Loading room settings:', {
-      roomSettings: room.settings,
-      formValues: roomSettingsForm.value,
-    })
     
     // Reset image upload state
     roomImageFile.value = null
@@ -4744,24 +4867,6 @@ const updateRoomSettings = async () => {
     // Add banner mode setting
     settings.useImageAsBanner = roomSettingsForm.value.useImageAsBanner || false
     
-    console.log('Form values:', {
-      backgroundColor: roomSettingsForm.value.backgroundColor,
-      textColor: roomSettingsForm.value.textColor,
-      roomNameColor: roomSettingsForm.value.roomNameColor,
-      roomBorderColor: roomSettingsForm.value.roomBorderColor,
-      roomDescriptionColor: roomSettingsForm.value.roomDescriptionColor,
-    })
-    
-    console.log('Converted color values:', {
-      backgroundColor: bgColor,
-      textColor: txtColor,
-      roomNameColor: nameColor,
-      roomBorderColor: borderColor,
-      roomDescriptionColor: descColor,
-    })
-    
-    console.log('Saving settings:', settings) // Debug log
-    
     const updatedRoom = await $api(`/chat/${chatStore.currentRoom.id}`, {
       method: 'PUT',
       body: {
@@ -4780,9 +4885,6 @@ const updateRoomSettings = async () => {
       },
     })
     
-    console.log('Updated room response:', updatedRoom) // Debug log
-    console.log('Updated room settings:', updatedRoom.settings) // Debug log
-    
     // Update current room in store
     chatStore.setCurrentRoom(updatedRoom)
     
@@ -4790,7 +4892,6 @@ const updateRoomSettings = async () => {
     const roomIndex = chatStore.rooms.findIndex((r: Room) => r.id === updatedRoom.id)
     if (roomIndex !== -1) {
       chatStore.rooms[roomIndex] = updatedRoom
-      console.log('Updated room in rooms list:', updatedRoom.id, updatedRoom.settings)
     }
     
     // Refresh rooms list to update sidebar with new styles
@@ -4956,7 +5057,10 @@ const createRoom = async () => {
 }
 
 // Private messages
-const privateChats = ref<any[]>([])
+const privateMessageContent = ref('')
+const sendingPrivateMessage = ref(false)
+const showPrivateMessageModal = ref(false)
+const privateMessagesContainer = ref<HTMLElement | null>(null)
 
 // Wall
 const wallPost = ref('')
@@ -4995,7 +5099,8 @@ const currentTime = ref(new Date())
 let timeInterval: ReturnType<typeof setInterval> | null = null
 let activityInterval: ReturnType<typeof setInterval> | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
-let currentPresenceChannel: any = null
+let currentPresenceChannel: any = null // Room-specific presence channel
+let globalPresenceChannel: any = null // Global presence channel for cross-room status updates
 const scheduledMessageIntervals = ref<Map<number, ReturnType<typeof setInterval>>>(new Map())
 const scheduledMessageCountdowns = ref<Map<number, ReturnType<typeof setInterval>>>(new Map())
 const scheduledMessageNextSendTime = ref<Map<number, number>>(new Map())
@@ -5036,49 +5141,36 @@ const sendLocalScheduledMessage = (scheduledMessage: any, roomId: number) => {
 
 // Set up scheduled messages for the current room
 const setupScheduledMessages = (roomId: number) => {
-  console.log('🔵 setupScheduledMessages called for room:', roomId)
   
   // Clean up any existing intervals first
   cleanupScheduledMessages()
   
-  console.log('🔵 Current room:', chatStore.currentRoom)
-  console.log('🔵 Scheduled messages:', chatStore.currentRoom?.scheduled_messages)
-  console.log('🔵 Scheduled messages type:', typeof chatStore.currentRoom?.scheduled_messages)
-  console.log('🔵 Scheduled messages is array:', Array.isArray(chatStore.currentRoom?.scheduled_messages))
   
   if (!chatStore.currentRoom) {
-    console.warn('⚠️ No current room, cannot set up scheduled messages')
     return
   }
   
   if (!chatStore.currentRoom.scheduled_messages || !Array.isArray(chatStore.currentRoom.scheduled_messages)) {
-    console.warn('⚠️ No scheduled messages found in room data')
-    console.warn('⚠️ scheduled_messages value:', chatStore.currentRoom.scheduled_messages)
+
     return
   }
   
-  console.log('🔵 All scheduled messages before filter:', chatStore.currentRoom.scheduled_messages)
   const scheduledMessages = chatStore.currentRoom.scheduled_messages.filter((msg: any) => {
     const isActive = msg.is_active !== false && msg.is_active !== undefined
-    console.log(`🔵 Message ${msg.id} (${msg.title}): is_active=${msg.is_active}, will include=${isActive}`)
     return isActive
   })
-  console.log('✅ Active scheduled messages:', scheduledMessages.length)
   
   for (const msg of scheduledMessages) {
-    console.log('🟢 Processing scheduled message:', msg.id, msg.type, msg.title)
     
     if (msg.type === 'welcoming') {
       // Send welcoming messages after room welcome/system messages are sent (one-time only, does not recur)
       // Wait for welcome/system messages to be sent first
       setTimeout(() => {
-        console.log('📤 Sending welcoming scheduled message:', msg.title, '(one-time only, will not recur)')
         sendLocalScheduledMessage(msg, roomId)
       }, 1000) // Wait 1 second after room welcome messages
     } else if (msg.type === 'daily') {
       // Set up interval for daily messages based on time_span (recurring every time_span minutes)
       const intervalMs = msg.time_span * 60 * 1000 // Convert minutes to milliseconds
-      console.log('⏰ Setting up daily message interval:', msg.title, 'every', msg.time_span, 'minutes (', intervalMs, 'ms)')
       
       // Store message ID and title for lookup later
       const messageId = msg.id
@@ -5133,41 +5225,28 @@ const setupScheduledMessages = (roomId: number) => {
       
       // Then set up interval to send repeatedly every time_span minutes
       const intervalId = setInterval(() => {
-        console.log(`🔄 Interval fired for message ID: ${messageId}, roomId: ${roomId}`)
-        console.log(`🔄 Current room ID: ${chatStore.currentRoom?.id}, matches: ${chatStore.currentRoom && String(chatStore.currentRoom.id) === String(roomId)}`)
-        
         // Check if we're still in the same room
         if (chatStore.currentRoom && String(chatStore.currentRoom.id) === String(roomId)) {
           // Look up the scheduled message from loaded room data
           const scheduledMessages = chatStore.currentRoom.scheduled_messages || []
-          console.log(`🔄 Looking for message ${messageId} in ${scheduledMessages.length} scheduled messages`)
           
           let currentMessage = scheduledMessages.find((m: any) => m.id === messageId && m.is_active)
           
           // Fallback to original message if not found in current room data (in case room data was refreshed)
           if (!currentMessage && originalMessage.is_active) {
-            console.log(`⚠️ Message not found in room data, using original message data for ID: ${messageId}`)
             currentMessage = originalMessage
           }
           
           if (currentMessage && currentMessage.is_active) {
-            console.log(`✅ [Recurring Message] Sending "${currentMessage.title}" (repeats every ${currentMessage.time_span} minutes)`)
             sendLocalScheduledMessage(currentMessage, roomId)
             
             // Update next send time and restart countdown
             const newNextSendTime = Date.now() + intervalMs
             scheduledMessageNextSendTime.value.set(messageId, newNextSendTime)
-            console.log(`✅ [Recurring Message] Next "${currentMessage.title}" will be sent in ${currentMessage.time_span} minutes`)
             startCountdown()
-          } else {
-            console.warn(`⚠️ Scheduled message ${messageId} not found or inactive. Available messages:`, scheduledMessages.map((m: any) => ({ id: m.id, title: m.title, is_active: m.is_active })))
-            console.warn(`⚠️ Original message active status: ${originalMessage.is_active}`)
-            // Don't clean up - keep trying in case the room data gets refreshed
-            // The message might be temporarily unavailable but could come back
           }
         } else {
           // Clean up if we've left the room
-          console.log(`⚠️ Cleaning up interval - left room. Current: ${chatStore.currentRoom?.id}, Expected: ${roomId}`)
           clearInterval(intervalId)
           scheduledMessageIntervals.value.delete(messageId)
           const countdownId = scheduledMessageCountdowns.value.get(messageId)
@@ -5180,12 +5259,9 @@ const setupScheduledMessages = (roomId: number) => {
       }, intervalMs)
       
       scheduledMessageIntervals.value.set(msg.id, intervalId)
-      console.log('✅ Interval set up for message:', msg.id, 'Interval ID:', intervalId)
-      console.log(`⏰ Next "${msg.title}" message will be sent in ${msg.time_span} minutes`)
     }
   }
   
-  console.log('✅ Total intervals set up:', scheduledMessageIntervals.value.size)
   if (scheduledMessageIntervals.value.size === 0) {
     console.warn('⚠️ No recurring intervals were set up. Make sure you have "daily" type messages (not "welcoming") if you want messages to recur.')
   }
@@ -5364,6 +5440,33 @@ const insertEmoji = (emojiId: number) => {
   })
 }
 
+const insertPrivateEmoji = (emojiId: number) => {
+  const emojiCode = `:${emojiId}:`
+  privateMessageContent.value += emojiCode
+  privateEmojiPanel.value?.hide()
+  // Focus back on input
+  nextTick(() => {
+    if (privateMessageInput.value && privateMessageInput.value.$el) {
+      const input = privateMessageInput.value.$el.querySelector('input') || privateMessageInput.value.$el
+      if (input) {
+        input.focus()
+        // Move cursor to end
+        const length = privateMessageContent.value.length
+        input.setSelectionRange(length, length)
+      }
+    }
+  })
+}
+
+const onPrivateMessageFileSelect = (event: any) => {
+  const file = event.files?.[0]
+  if (file) {
+    privateMessageImageFile.value = file
+    // Auto-send the image
+    sendPrivateMessageWithImage()
+  }
+}
+
 const setReplyTo = (message: Message) => {
   replyingTo.value = message
   // Focus on input
@@ -5489,14 +5592,179 @@ const sendMessage = async () => {
 // Users sidebar functions
 const viewUserStory = (user: { id: number; name?: string; username?: string }) => {
   // TODO: Implement story viewing
-  console.log('View story for:', user)
 }
 
-const openPrivateChat = (user: { id: number; name?: string; username?: string; avatar_url?: string }) => {
-  showUsersSidebar.value = false
-  showPrivateMessages.value = true
-  // TODO: Open private chat with user
-  console.log('Open private chat with:', user)
+const openPrivateChat = async (user: { id: number; name?: string; username?: string; avatar_url?: string }) => {
+  try {
+    // Close user profile modal if open
+    if (showUserProfileModal.value) {
+      closeUserProfileModal()
+    }
+    
+    // Check if user has private messages enabled
+    const fullUser = chatStore.activeUsers.find((u: User) => u.id === user.id) || user as User
+    
+    if (!fullUser.private_messages_enabled && fullUser.id !== authStore.user?.id) {
+      toast.add({
+        severity: 'warn',
+        summary: 'غير متاح',
+        detail: 'هذا المستخدم قام بإيقاف الرسائل الخاصة',
+        life: 3000,
+      })
+      return
+    }
+    
+    // Check if current user has private messages enabled
+    if (!authStore.user?.private_messages_enabled) {
+      toast.add({
+        severity: 'warn',
+        summary: 'غير متاح',
+        detail: 'الرسائل الخاصة معطلة في حسابك',
+        life: 3000,
+      })
+      return
+    }
+    
+    // Set current conversation
+    privateMessagesStore.setCurrentConversation(fullUser)
+    
+    // Fetch messages
+    await privateMessagesStore.fetchMessages(user.id)
+    
+    // Mark as read
+    await privateMessagesStore.markAsRead(user.id)
+    
+    // Show private message modal
+    showPrivateMessageModal.value = true
+    
+    // Scroll to bottom
+    nextTick(() => {
+      scrollPrivateMessagesToBottom()
+    })
+  } catch (error: any) {
+    console.error('Error opening private chat:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'خطأ',
+      detail: error?.message || 'فشل فتح المحادثة الخاصة',
+      life: 3000,
+    })
+  }
+}
+
+const closePrivateMessageModal = () => {
+  showPrivateMessageModal.value = false
+  privateMessagesStore.setCurrentConversation(null)
+  privateMessageContent.value = ''
+  privateMessageImageFile.value = null
+  privateEmojiPanel.value?.hide()
+}
+
+const scrollPrivateMessagesToBottom = () => {
+  if (privateMessagesContainer.value) {
+    privateMessagesContainer.value.scrollTop = privateMessagesContainer.value.scrollHeight
+  }
+}
+
+const sendPrivateMessage = async () => {
+  if ((!privateMessageContent.value.trim() && !privateMessageImageFile.value) || sendingPrivateMessage.value || !privateMessagesStore.currentConversation) return
+
+  const content = privateMessageContent.value.trim()
+  const imageFile = privateMessageImageFile.value
+  
+  // If there's an image, send it separately
+  if (imageFile) {
+    await sendPrivateMessageWithImage()
+    return
+  }
+  
+  privateMessageContent.value = ''
+  
+  sendingPrivateMessage.value = true
+
+  try {
+    const sentMessage = await privateMessagesStore.sendMessage(
+      privateMessagesStore.currentConversation.id,
+      content
+    )
+
+    if (sentMessage && sentMessage.id) {
+      privateMessagesStore.addMessage(sentMessage)
+    }
+
+    scrollPrivateMessagesToBottom()
+  } catch (error: any) {
+    console.error('Error sending private message:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'خطأ',
+      detail: error?.message || 'فشل إرسال الرسالة',
+      life: 3000,
+    })
+    // Restore message content on error
+    privateMessageContent.value = content
+  } finally {
+    sendingPrivateMessage.value = false
+  }
+}
+
+const sendPrivateMessageWithImage = async () => {
+  if (!privateMessagesStore.currentConversation || sendingPrivateMessage.value) return
+
+  const imageFile = privateMessageImageFile.value
+  const content = privateMessageContent.value.trim()
+  
+  if (!imageFile) return
+  
+  sendingPrivateMessage.value = true
+
+  try {
+    const { $api } = useNuxtApp()
+    const formData = new FormData()
+    formData.append('image', imageFile)
+    if (content) {
+      formData.append('content', content)
+    }
+
+    // Upload image first, then send message with image URL
+    const uploadResponse = await $api('/private-messages/upload-image', {
+      method: 'POST',
+      body: formData,
+    })
+
+    // Send message with image URL in meta
+    const messageContent = content || 'صورة'
+    const meta = {
+      image_url: uploadResponse.image_url || uploadResponse.url,
+      image_path: uploadResponse.path,
+    }
+
+    const sentMessage = await privateMessagesStore.sendMessage(
+      privateMessagesStore.currentConversation.id,
+      messageContent,
+      meta
+    )
+
+    if (sentMessage && sentMessage.id) {
+      privateMessagesStore.addMessage(sentMessage)
+    }
+
+    // Clear inputs
+    privateMessageContent.value = ''
+    privateMessageImageFile.value = null
+
+    scrollPrivateMessagesToBottom()
+  } catch (error: any) {
+    console.error('Error sending private message with image:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'خطأ',
+      detail: error?.message || 'فشل إرسال الصورة',
+      life: 3000,
+    })
+  } finally {
+    sendingPrivateMessage.value = false
+  }
 }
 
 // Wall functions
@@ -6013,84 +6281,615 @@ const getSocialMediaPlatformName = (type: string | null | undefined): string => 
   return names[type] || 'رابط التواصل الاجتماعي'
 }
 
-const userConnectionStatus = ref<Record<number, 'online' | 'afk' | 'disconnected' | 'internet_disconnected'>>({})
+// New status types: 'active', 'inactive_tab', 'private_disabled', 'away', 'incognito'
+type UserStatus = 'active' | 'inactive_tab' | 'private_disabled' | 'away' | 'incognito'
+
+const userConnectionStatus = ref<Record<number, UserStatus>>({})
 const userLastActivity = ref<Record<number, number>>({})
+const userTabVisibility = ref<Record<number, boolean>>({}) // Track if user's tab is visible
 // Track users who left rooms - used to detect "moved" vs "joined" actions
 // Note: "left" messages are ONLY sent on socket disconnect, not when users leave rooms
 const usersLeavingRooms = ref<Record<number, { 
   roomId: number, 
-  timestamp: number, 
+  timestamp: number,
+  lastActivity?: number, // Preserve activity timestamp when user leaves
+  lastStatus?: UserStatus, // Preserve status when user leaves
   timeoutId: ReturnType<typeof setTimeout>
 }>>({})
 
-const setUserConnectionStatus = (userId: number, status: 'online' | 'afk' | 'disconnected' | 'internet_disconnected') => {
+// Track current user's tab visibility
+const isTabVisible = ref(true)
+
+// Load last activity from localStorage if available
+const getLastActivityKey = () => {
+  return authStore.user?.id ? `user_${authStore.user.id}_last_activity` : null
+}
+
+const loadLastActivity = (): number => {
+  if (!import.meta.client) return Date.now()
+  const key = getLastActivityKey()
+  if (!key) return Date.now()
+  
+  try {
+    const saved = localStorage.getItem(key)
+    if (saved) {
+      const timestamp = parseInt(saved, 10)
+      // Only use saved value if it's not too old (more than 1 hour ago, reset to now)
+      const oneHour = 60 * 60 * 1000
+      if (Date.now() - timestamp < oneHour) {
+        return timestamp
+      }
+    }
+  } catch (error) {
+    console.warn('Error loading last activity from storage:', error)
+  }
+  return Date.now()
+}
+
+const saveLastActivity = (timestamp: number) => {
+  if (!import.meta.client) return
+  const key = getLastActivityKey()
+  if (!key) return
+  
+  try {
+    localStorage.setItem(key, String(timestamp))
+  } catch (error) {
+    console.warn('Error saving last activity to storage:', error)
+  }
+}
+
+const currentUserLastActivity = ref(loadLastActivity())
+
+// Track tab visibility using Page Visibility API
+if (import.meta.client) {
+  const handleVisibilityChange = () => {
+    const wasVisible = isTabVisible.value
+    isTabVisible.value = !document.hidden
+    
+    if (authStore.user?.id) {
+      if (document.hidden) {
+        // Tab is now hidden - immediately mark user as away (gray)
+        // This happens when user switches to another browser tab
+        setUserConnectionStatus(authStore.user.id, 'away')
+        
+        // Update tab visibility for other users via ping/pong
+        // Send immediate ping to notify others that tab is hidden
+        if (currentPresenceChannel && currentPresenceChannel.subscribed && typeof currentPresenceChannel.whisper === 'function') {
+          try {
+            currentPresenceChannel.whisper('ping', {
+              user_id: authStore.user.id,
+              timestamp: Date.now(),
+              tab_visible: false,
+              last_activity: currentUserLastActivity.value,
+            })
+          } catch (error) {
+            console.warn('Error sending visibility ping:', error)
+          }
+        }
+        
+        // Force update the UI by triggering reactivity
+        // The status indicator should update immediately
+        nextTick(() => {
+          // Ensure status is set to away
+          if (userConnectionStatus.value[authStore.user.id] !== 'away') {
+            setUserConnectionStatus(authStore.user.id, 'away')
+          }
+        })
+      } else {
+        // Tab is now visible - but don't update activity (tab visibility is not an interaction)
+        // Just notify others that tab is visible via ping/pong
+        const now = Date.now()
+        
+        // Update tab visibility for other users via ping/pong
+        // Send immediate ping to notify others that tab is visible (but don't update activity)
+        if (currentPresenceChannel && currentPresenceChannel.subscribed && typeof currentPresenceChannel.whisper === 'function') {
+          try {
+            currentPresenceChannel.whisper('ping', {
+              user_id: authStore.user.id,
+              timestamp: now,
+              tab_visible: true,
+              last_activity: currentUserLastActivity.value, // Use existing activity, don't update it
+            })
+          } catch (error) {
+            console.warn('Error sending visibility ping:', error)
+          }
+        }
+        
+        // Recalculate status immediately (status will be yellow if no recent interaction)
+        const user = authStore.user
+        const newStatus = calculateUserStatus(user)
+        setUserConnectionStatus(user.id, newStatus)
+      }
+    }
+  }
+  
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  
+  // NOTE: Removed mouse/keyboard/scroll activity tracking
+  // Activity should only be updated for actual interactions:
+  // - Sending messages
+  // - Changing rooms
+  // - Reconnecting to socket
+  
+  // Save status before page unload (when user closes tab/refreshes)
+  const handleBeforeUnload = async () => {
+    if (authStore.user?.id && pendingStatusUpdate.value) {
+      // Save status immediately (synchronous if possible)
+      try {
+        const { $api } = useNuxtApp()
+        // Use sendBeacon for reliable delivery during page unload
+        if (navigator.sendBeacon) {
+          const blob = new Blob([JSON.stringify({
+            status: pendingStatusUpdate.value.status,
+            last_activity: pendingStatusUpdate.value.lastActivity,
+          })], { type: 'application/json' })
+          navigator.sendBeacon(
+            `${useRuntimeConfig().public.apiBaseUrl}/user-status`,
+            blob
+          )
+        } else {
+          // Fallback: try synchronous fetch (may not complete)
+          await ($api as any)('/user-status', {
+            method: 'PUT',
+            body: {
+              status: pendingStatusUpdate.value.status,
+              last_activity: pendingStatusUpdate.value.lastActivity,
+            },
+            keepalive: true, // Keep request alive during page unload
+          })
+        }
+      } catch (error) {
+        console.warn('Failed to save status on unload:', error)
+      }
+    }
+  }
+  
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  
+  // Cleanup on unmount
+  onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+    window.removeEventListener('beforeunload', handleBeforeUnload)
+    
+    // Save status on component unmount
+    if (authStore.user?.id && pendingStatusUpdate.value) {
+      handleBeforeUnload()
+    }
+  })
+}
+
+// Debounced status update to backend (prevents too many API calls)
+let statusUpdateTimeout: ReturnType<typeof setTimeout> | null = null
+const pendingStatusUpdate = ref<{ userId: number; status: UserStatus; lastActivity: number | null } | null>(null)
+
+const setUserConnectionStatus = (userId: number, status: UserStatus) => {
   userConnectionStatus.value = {
     ...userConnectionStatus.value,
     [userId]: status,
+  }
+  
+  // If this is the current user, update status in backend
+  if (userId === authStore.user?.id) {
+    const lastActivity = currentUserLastActivity.value
+    
+    // Clear existing timeout if any
+    if (statusUpdateTimeout) {
+      clearTimeout(statusUpdateTimeout)
+      statusUpdateTimeout = null
+    }
+    
+    // Set pending update
+    pendingStatusUpdate.value = {
+      userId,
+      status,
+      lastActivity,
+    }
+    
+    // If status is "active", send immediately (no debounce)
+    // Other statuses are debounced to reduce API calls
+    if (status === 'active') {
+      // Send immediately for active status
+      ;(async () => {
+        try {
+          const { $api } = useNuxtApp()
+          await ($api as any)('/user-status', {
+            method: 'PUT',
+            body: {
+              status: status,
+              last_activity: lastActivity,
+            },
+          })
+
+          pendingStatusUpdate.value = null
+        } catch (error) {
+          console.error('Error saving active status to backend:', error)
+        }
+      })()
+    } else {
+      // Debounce other statuses: wait 5 seconds before sending update (reduces API calls)
+      statusUpdateTimeout = setTimeout(async () => {
+        if (pendingStatusUpdate.value && authStore.user?.id) {
+          try {
+            const { $api } = useNuxtApp()
+            await ($api as any)('/user-status', {
+              method: 'PUT',
+              body: {
+                status: pendingStatusUpdate.value.status,
+                last_activity: pendingStatusUpdate.value.lastActivity,
+              },
+            })
+
+            pendingStatusUpdate.value = null
+          } catch (error) {
+            console.error('Error saving status to backend:', error)
+          }
+        }
+      }, 5000) // 5 second debounce for non-active statuses
+    }
   }
 }
 
 const markUserActiveOnSocket = (userId: number) => {
   if (!userId) return
-  userLastActivity.value = {
-    ...userLastActivity.value,
-    [userId]: Date.now(),
+  
+  const isCurrentUser = userId === authStore.user?.id
+  
+  if (isCurrentUser) {
+    // For current user, update currentUserLastActivity
+    const now = Date.now()
+    currentUserLastActivity.value = now
+    // Save to localStorage for persistence
+    saveLastActivity(now)
+  } else {
+    // For other users, update userLastActivity
+    userLastActivity.value = {
+      ...userLastActivity.value,
+      [userId]: Date.now(),
+    }
   }
-  setUserConnectionStatus(userId, 'online')
+  
+  // Don't override special statuses (private_disabled, incognito) - they'll be recalculated
+  const currentStatus = userConnectionStatus.value[userId]
+  if (currentStatus !== 'private_disabled' && currentStatus !== 'incognito') {
+    setUserConnectionStatus(userId, 'active')
+  }
+}
+
+// Calculate user status based on rules
+const calculateUserStatus = (user: any): UserStatus => {
+  if (!user?.id) return 'away'
+  
+  // Check if user has incognito mode permission AND has it enabled
+  // User must have the permission AND have enabled it in their settings
+  if (hasPermission(user, 'incognito_mode') && user.incognito_mode_enabled === true) {
+    return 'incognito'
+  }
+  
+  // Check if user has disabled private messages
+  // Check from user object (backend provides it)
+  const settingsStore = useSettingsStore()
+  const isCurrentUser = user.id === authStore.user?.id
+  
+  if (isCurrentUser) {
+    // For current user, check settings store first, then user object
+    if (settingsStore.privateMessagesEnabled === false || user.private_messages_enabled === false) {
+      return 'private_disabled'
+    }
+  } else {
+    // For other users, check if backend provides this info
+    if (user.private_messages_enabled === false) {
+      return 'private_disabled'
+    }
+  }
+  
+  // For current user, use currentUserLastActivity and isTabVisible
+  // For other users, use userLastActivity and userTabVisibility
+  const lastActivity = isCurrentUser 
+    ? currentUserLastActivity.value 
+    : userLastActivity.value[user.id]
+  
+  const isTabVisibleForUser = isCurrentUser
+    ? isTabVisible.value
+    : (userTabVisibility.value[user.id] !== false) // Default to true if not tracked
+  
+  // IMPORTANT: If tab is not visible (for current user), always return 'away' regardless of activity
+  // This ensures that when user switches to another tab, they're immediately marked as away
+  if (isCurrentUser && !isTabVisibleForUser) {
+    return 'away'
+  }
+  
+  const now = Date.now()
+  const oneMinute = 60 * 1000
+  
+  // If no activity tracked, assume away
+  if (!lastActivity) {
+    return 'away'
+  }
+  
+  const timeSinceActivity = now - lastActivity
+
+  
+  // If tab is visible and user was active within 1 minute: active (green)
+  if (isTabVisibleForUser && timeSinceActivity < oneMinute) {
+    return 'active'
+  }
+  
+  // If tab is visible but inactive for 1+ minute: inactive_tab (yellow)
+  if (isTabVisibleForUser && timeSinceActivity >= oneMinute) {
+    return 'inactive_tab'
+  }
+  
+  // If tab is not visible and inactive for 1+ minute: away (gray)
+  if (!isTabVisibleForUser && timeSinceActivity >= oneMinute) {
+    return 'away'
+  }
+  
+  // Default to active if tab is visible
+  return isTabVisibleForUser ? 'active' : 'away'
 }
 
 const getUserConnectionStatusClass = (user: any) => {
   if (!user?.id) return 'bg-gray-300'
 
-  const status = userConnectionStatus.value[user.id]
+  // For current user, if tab is hidden, always show away (gray) regardless of stored status
+  const isCurrentUser = user.id === authStore.user?.id
+  if (isCurrentUser && !isTabVisible.value) {
+    return 'bg-gray-400' // away (gray)
+  }
+
+  const status = userConnectionStatus.value[user.id] || calculateUserStatus(user)
 
   switch (status) {
-    case 'online':
+    case 'active':
       return 'bg-green-500'
-    case 'afk':
+    case 'inactive_tab':
       return 'bg-yellow-400'
-    case 'disconnected':
+    case 'private_disabled':
       return 'bg-red-500'
-    case 'internet_disconnected':
+    case 'away':
       return 'bg-gray-400'
+    case 'incognito':
+      return 'bg-blue-500'
     default:
       return 'bg-gray-300'
   }
 }
 
-// Ping/Pong mechanism for real-time activity tracking
+// Status check interval (1 minute)
+let statusCheckInterval: ReturnType<typeof setInterval> | null = null
+
+// Update status for all users globally (not room-specific)
+const updateAllUsersStatus = () => {
+  
+  // Use activeUsers from chatStore (global, not room-specific)
+  const allUsers = chatStore.activeUsers || []
+  
+  if (allUsers.length === 0) {
+    return
+  }
+  
+  
+  allUsers.forEach((user: any) => {
+    if (user?.id) {
+      const newStatus = calculateUserStatus(user)
+      const oldStatus = userConnectionStatus.value[user.id]
+      setUserConnectionStatus(user.id, newStatus)
+      
+    }
+  })
+  
+}
+
+// Ping/Pong mechanism for global presence channel (cross-room status updates)
+const setupGlobalPresencePingPong = (channel: any) => {
+  if (!channel || typeof channel.listenForWhisper !== 'function') {
+    return
+  }
+
+  // Listen for pong responses from other users on global channel
+  channel.listenForWhisper('pong', (data: any) => {
+    if (data && data.user_id && typeof data.user_id === 'number') {
+      // Update user activity - use timestamp from data if provided, otherwise use current time
+      const activityTime = data.last_activity || data.timestamp || Date.now()
+      userLastActivity.value = {
+        ...userLastActivity.value,
+        [data.user_id]: activityTime,
+      }
+      
+      // Update tab visibility if provided
+      if (typeof data.tab_visible === 'boolean') {
+        userTabVisibility.value = {
+          ...userTabVisibility.value,
+          [data.user_id]: data.tab_visible,
+        }
+      }
+      
+      // Recalculate status immediately (works globally, not room-specific)
+      // Find user in activeUsers (global list)
+      const user = chatStore.activeUsers.find((u: any) => u.id === data.user_id)
+      if (user) {
+        const newStatus = calculateUserStatus(user)
+        setUserConnectionStatus(data.user_id, newStatus)
+      }
+    }
+  })
+
+  // Send ping on global channel every 30 seconds (separate from room channel ping)
+  // This ensures status updates work across all rooms
+  setInterval(() => {
+    if (!globalPresenceChannel || !authStore.user?.id) {
+      return
+    }
+    
+    try {
+      if (globalPresenceChannel.subscribed && typeof globalPresenceChannel.whisper === 'function') {
+        globalPresenceChannel.whisper('ping', {
+          user_id: authStore.user.id,
+          timestamp: Date.now(),
+          tab_visible: isTabVisible.value,
+          last_activity: currentUserLastActivity.value,
+        })
+      }
+    } catch (error: any) {
+      console.warn('⚠️ [GLOBAL PING] Error sending ping on global channel:', error?.message || error)
+    }
+  }, 30000) // Ping every 30 seconds
+
+  // Listen for ping events on global channel and respond with pong
+  channel.listenForWhisper('ping', (data: any) => {
+    if (data && data.user_id && typeof data.user_id === 'number' && authStore.user?.id) {
+      // Update the ping sender's tab visibility if provided
+      if (typeof data.tab_visible === 'boolean') {
+        userTabVisibility.value = {
+          ...userTabVisibility.value,
+          [data.user_id]: data.tab_visible,
+        }
+      }
+      
+      // Respond with pong to indicate we're active (include our tab visibility)
+      try {
+        if (channel.subscribed && typeof channel.whisper === 'function') {
+          channel.whisper('pong', {
+            user_id: authStore.user.id,
+            timestamp: Date.now(),
+            tab_visible: isTabVisible.value,
+            last_activity: currentUserLastActivity.value,
+          })
+        }
+      } catch (error) {
+        console.error('Error sending global pong:', error)
+      }
+    }
+  })
+}
+
+// Ping/Pong mechanism for real-time activity tracking (room-specific)
 const startPingPong = (channel: any) => {
+  // Store the channel reference
+  currentPresenceChannel = channel
+  
   // Clear any existing ping interval
   if (pingInterval) {
     clearInterval(pingInterval)
     pingInterval = null
   }
+  
+  // Clear any existing status check interval
+  if (statusCheckInterval) {
+    clearInterval(statusCheckInterval)
+    statusCheckInterval = null
+  }
 
   // Listen for pong responses from other users
-  channel.listenForWhisper('pong', (data: any) => {
-    if (data && data.user_id && typeof data.user_id === 'number') {
-      // Mark user as active when they respond to ping
-      markUserActiveOnSocket(data.user_id)
-    }
-  })
+  if (channel && typeof channel.listenForWhisper === 'function') {
+    channel.listenForWhisper('pong', (data: any) => {
+      if (data && data.user_id && typeof data.user_id === 'number') {
+        // Update user activity - use timestamp from data if provided, otherwise use current time
+        const activityTime = data.last_activity || data.timestamp || Date.now()
+        userLastActivity.value = {
+          ...userLastActivity.value,
+          [data.user_id]: activityTime,
+        }
+        
+        // Update tab visibility if provided
+        if (typeof data.tab_visible === 'boolean') {
+          userTabVisibility.value = {
+            ...userTabVisibility.value,
+            [data.user_id]: data.tab_visible,
+          }
+        }
+        
+        // Recalculate status immediately (using global activeUsers, not room-specific)
+        const user = chatStore.activeUsers.find((u: any) => u.id === data.user_id)
+        if (user) {
+          const newStatus = calculateUserStatus(user)
+          setUserConnectionStatus(data.user_id, newStatus)
+        }
+      }
+    })
+    
+  }
 
   // Send ping every 30 seconds to check user activity
   pingInterval = setInterval(() => {
-    if (channel && authStore.user?.id) {
-      try {
-        // Send ping via whisper to all members in the presence channel
-        channel.whisper('ping', {
-          user_id: authStore.user.id,
-          timestamp: Date.now(),
-        })
+    // Use the stored channel reference instead of the parameter
+    const activeChannel = currentPresenceChannel
+    
+    if (!activeChannel || !authStore.user?.id) {
+      return
+    }
+    
+    try {
+      // Check if channel is still valid and subscribed
+      if (!activeChannel.subscribed) {
+        console.warn('⚠️ [PING] Channel not subscribed, skipping ping')
+        return
+      }
+      
+      if (typeof activeChannel.whisper !== 'function') {
+        console.warn('⚠️ [PING] Channel whisper function not available, skipping ping')
+        return
+      }
+      
+      // Check internal Pusher channel state to ensure it's valid
+      // @ts-ignore - accessing internal pusher properties
+      const pusherChannel = activeChannel.pusher || activeChannel._pusher || activeChannel.channel
+      if (pusherChannel) {
+        // @ts-ignore
+        const channelName = pusherChannel.name || activeChannel.name
+        // @ts-ignore
+        const pusherInstance = pusherChannel.pusher || pusherChannel._pusher
         
-        // Mark current user as active when sending ping
-        markUserActiveOnSocket(authStore.user.id)
-      } catch (error) {
-        console.error('Error sending ping:', error)
+        // Check if the channel exists in Pusher's channels registry
+        if (pusherInstance?.channels?.channels) {
+          // @ts-ignore
+          if (!pusherInstance.channels.channels[channelName]) {
+            console.warn('⚠️ [PING] Channel not found in Pusher channels registry, stopping ping interval')
+            if (pingInterval) {
+              clearInterval(pingInterval)
+              pingInterval = null
+            }
+            currentPresenceChannel = null
+            return
+          }
+        }
+      }
+      
+      // Send ping via whisper to all members in the presence channel
+      // Note: We don't mark current user as active here - only send ping data
+      // Activity should only be updated from actual user interactions
+      activeChannel.whisper('ping', {
+        user_id: authStore.user.id,
+        timestamp: Date.now(),
+        tab_visible: isTabVisible.value,
+        last_activity: currentUserLastActivity.value,
+      })
+    } catch (error: any) {
+      // Channel might be disconnected or invalid
+      const errorMsg = error?.message || String(error)
+      console.warn('⚠️ [PING] Error sending ping:', errorMsg)
+      
+      // If channel is invalid (undefined trigger, channels, pusher errors), stop ping interval
+      if (errorMsg.includes('undefined') || 
+          errorMsg.includes('trigger') || 
+          errorMsg.includes('channels') ||
+          errorMsg.includes('pusher') ||
+          errorMsg.includes('Cannot read')) {
+        console.warn('⚠️ [PING] Channel appears disconnected, stopping ping interval')
+        if (pingInterval) {
+          clearInterval(pingInterval)
+          pingInterval = null
+        }
+        // Clear the channel reference
+        currentPresenceChannel = null
       }
     }
   }, 30000) // Ping every 30 seconds
+  
+  // Status check every 1 minute (60000ms)
+  statusCheckInterval = setInterval(() => {
+    updateAllUsersStatus()
+  }, 60000) // Check every 1 minute
 }
 
 // Stop ping/pong when leaving channel
@@ -6098,6 +6897,10 @@ const stopPingPong = () => {
   if (pingInterval) {
     clearInterval(pingInterval)
     pingInterval = null
+  }
+  if (statusCheckInterval) {
+    clearInterval(statusCheckInterval)
+    statusCheckInterval = null
   }
   currentPresenceChannel = null
 }
@@ -6277,6 +7080,23 @@ const saveSettings = async () => {
 }
 
 const handleLogout = async () => {
+  // Save status before logout
+  if (authStore.user?.id) {
+    const currentStatus = userConnectionStatus.value[authStore.user.id] || 'away'
+    try {
+      const { $api } = useNuxtApp()
+      await ($api as any)('/user-status', {
+        method: 'PUT',
+        body: {
+          status: currentStatus,
+          last_activity: currentUserLastActivity.value,
+        },
+      })
+    } catch (error) {
+      console.warn('Failed to save status on logout:', error)
+    }
+  }
+  
   // Send "left" system message and leave event before logging out
   if (authStore.user && roomId.value && currentChannel) {
     const user = authStore.user
@@ -6307,7 +7127,6 @@ const handleLogout = async () => {
     try {
       // Send via whisper to ALL other users in the room (whisper sends to all members except sender)
       currentChannel.whisper('user.left', leftMessage)
-      console.log(`Sent "left" message to ALL users in room ${roomId.value} via socket whisper (on logout)`)
       
       // Add a small delay to ensure whisper is sent before leaving channel
       await new Promise(resolve => setTimeout(resolve, 200))
@@ -6435,7 +7254,6 @@ const toggleSocketConnection = async () => {
       try {
         // Send via whisper to ALL other users in the room (whisper sends to all members except sender)
         currentChannel.whisper('user.left', leftMessage)
-        console.log(`Sent "left" message to ALL users in room ${roomId.value} via socket whisper`)
         
         // Add a small delay to ensure whisper is sent before leaving channel
         await new Promise(resolve => setTimeout(resolve, 100))
@@ -6535,7 +7353,6 @@ const toggleSocketConnection = async () => {
             pusher.connection.bind('state_change', (states: any) => {
               // Prevent auto-reconnect if manually disconnected
               if (isManualDisconnect.value && states.current === 'connecting') {
-                console.log('Preventing auto-reconnect - user manually disconnected')
                 // Disconnect again to prevent auto-reconnect
                 disconnect()
                 return
@@ -6662,7 +7479,6 @@ const navigateToRoom = async (id: number) => {
   
   // Don't navigate if password dialog is currently open
   if (showPasswordDialog.value) {
-    console.log('Password dialog is open, cannot navigate to another room')
     return
   }
   
@@ -6721,7 +7537,6 @@ const navigateToRoom = async (id: number) => {
     try {
       // Send via whisper to OTHER users in the old room (not to the moving user)
       currentChannel.whisper('user.moved', movedMessage)
-      console.log(`Sent "moved" message to old room ${oldRoomId} via socket (for other users only)`)
       // Note: We don't add it locally - the moving user will see the normal message in the new room
     } catch (error) {
       console.error('Failed to send "moved" message via socket:', error)
@@ -6821,11 +7636,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     const user = authStore.user
     const currentRoom = chatStore.currentRoom
     
-    console.log('📤 [PROGRAMMATIC] Sending notifications for current user:', user.id)
     
     // Show premium entry notification if enabled
     if (user.premium_entry) {
-      console.log('🎯 [PREMIUM ENTRY] Current user has premium_entry, showing notification programmatically')
       const userData = {
         id: user.id,
         name: user.name,
@@ -6886,21 +7699,14 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     )
     
     if (!existingMessage) {
-      console.log('📤 [PROGRAMMATIC] Adding system message for current user:', systemMessage)
-      console.log('📤 [PROGRAMMATIC] System message room_id:', systemMessage.room_id, 'Current room ID:', currentRoomId)
       chatStore.addMessage(systemMessage)
       nextTick(() => {
         scrollToBottom()
-        console.log('📤 [PROGRAMMATIC] Total messages after adding:', chatStore.messages.length)
-        console.log('📤 [PROGRAMMATIC] System messages count:', chatStore.messages.filter((m: Message) => m.meta?.is_system).length)
       })
-    } else {
-      console.log('📤 [PROGRAMMATIC] Duplicate system message found, skipping')
-    }
+    } 
   }
 
   channel.subscribed(async () => {
-    console.log('Successfully subscribed to presence channel:', `room.${currentRoomId}`)
     
     // Store channel reference for ping/pong
     currentPresenceChannel = channel
@@ -6908,11 +7714,11 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     // Start ping/pong mechanism for activity tracking
     startPingPong(channel)
     
-    // Send "joined" message to all users when reconnecting (only if socket was previously disconnected)
-    // Only send on reconnect (not initial join) - check if there was a previous disconnect
+    // If user reconnected after being disconnected, show "joined" message
     if (wasDisconnected.value && authStore.user && String(currentRoomId) === String(roomId.value)) {
-      // Reset the flag after sending
+      // Reset the flag
       wasDisconnected.value = false
+      
       // Small delay to ensure channel is fully ready
       await new Promise(resolve => setTimeout(resolve, 300))
       
@@ -6940,29 +7746,96 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         updated_at: new Date().toISOString(),
       }
       
-      try {
-        // Send via whisper to ALL other users in the room (not to the current user)
-        channel.whisper('user.joined', joinedMessage)
-        console.log(`Sent "joined" message to ALL other users in room ${currentRoomId} via socket whisper (on reconnect)`)
-        // Note: We don't add it locally - the reconnecting user will see the normal message in the room
-      } catch (error) {
-        console.error('Failed to send "joined" message via socket:', error)
-        // Don't add locally even if whisper fails - only other users should see it
+      // Add the message locally for the reconnecting user
+      const existingMessage = chatStore.messages.find((m: Message) => 
+        m.meta?.is_system && 
+        m.user_id === user.id && 
+        m.meta?.action === 'joined' &&
+        m.room_id === Number(currentRoomId) &&
+        new Date(m.created_at).getTime() > Date.now() - 5000
+      )
+      
+      if (!existingMessage) {
+        chatStore.addMessage(joinedMessage)
+        nextTick(() => {
+          scrollToBottom()
+        })
       }
     }
   })
   
   // Use presence channel events for join/leave notifications
-  channel.here((users: any[]) => {
-    console.log('Users currently in room:', users)
+  channel.here(async (users: any[]) => {
     if (chatStore.currentRoom) {
       chatStore.currentRoom.users = users
     }
 
-    // Mark all users currently in room as online from socket presence
+    // Load statuses from backend for all users (if status is not in user object)
+    const userIds = users.filter(u => u?.id).map(u => u.id)
+    if (userIds.length > 0) {
+      try {
+        const { $api } = useNuxtApp()
+        const statusResponse = await ($api as any)('/user-status/multiple', {
+          method: 'POST',
+          body: {
+            user_ids: userIds,
+          },
+        })
+        
+        // Update statuses from backend response
+        if (statusResponse?.statuses) {
+          Object.entries(statusResponse.statuses).forEach(([userId, statusData]: [string, any]) => {
+            const uid = parseInt(userId)
+            if (statusData.last_activity) {
+              userLastActivity.value = {
+                ...userLastActivity.value,
+                [uid]: statusData.last_activity,
+              }
+            }
+            if (statusData.status) {
+              setUserConnectionStatus(uid, statusData.status)
+            }
+          })
+        }
+      } catch (error) {
+        console.warn('Failed to load user statuses from backend:', error)
+        // Continue with local calculation as fallback
+      }
+    }
+
+    // Initialize status for all users currently in room
     users.forEach((u: any) => {
       if (u && typeof u.id === 'number') {
-        markUserActiveOnSocket(u.id)
+        // Use status from backend if available, otherwise calculate
+        if (u.status && userConnectionStatus.value[u.id] === undefined) {
+          // Status came from backend (presence channel)
+          setUserConnectionStatus(u.id, u.status)
+          if (u.last_activity) {
+            userLastActivity.value = {
+              ...userLastActivity.value,
+              [u.id]: u.last_activity,
+            }
+          }
+        } else {
+          // Fallback: calculate status locally
+          // Initialize activity tracking
+          if (!userLastActivity.value[u.id]) {
+            userLastActivity.value = {
+              ...userLastActivity.value,
+              [u.id]: u.last_activity || Date.now(),
+            }
+          }
+          // Default tab visibility to true (will be updated via ping/pong)
+          userTabVisibility.value = {
+            ...userTabVisibility.value,
+            [u.id]: true,
+          }
+          // Calculate and set initial status if not already set
+          if (!userConnectionStatus.value[u.id]) {
+            const initialStatus = calculateUserStatus(u)
+            setUserConnectionStatus(u.id, initialStatus)
+          }
+        }
       }
     })
     
@@ -7028,12 +7901,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
             updated_at: new Date().toISOString(),
           }
           
-          console.log('Channel.here: Adding welcome message:', welcomeMessage)
-          console.log('Channel.here: Welcome message room_id:', welcomeMessage.room_id, 'Current room ID:', currentRoomId)
           chatStore.addMessage(welcomeMessage)
           nextTick(() => {
             scrollToBottom()
-            console.log('Channel.here: Total messages after adding welcome:', chatStore.messages.length)
           })
         }
       }, 500)
@@ -7042,18 +7912,69 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
   })
   
   channel.joining(async (user: any) => {
-    console.log('Channel.joining: User joining room:', user, 'Current room ID:', currentRoomId, 'Previous room ID:', previousRoomId)
     
     // Skip current user - we'll handle them programmatically
     const isCurrentUser = user && user.id === authStore.user?.id
     if (isCurrentUser) {
-      console.log('Channel.joining: Skipping current user, will handle programmatically')
       return
     }
     
     if (user && typeof user.id === 'number') {
-      // Mark newly joined user as online from socket presence
-      markUserActiveOnSocket(user.id)
+      // Use status from backend if available (from presence channel)
+      if (user.status && user.last_activity !== undefined) {
+        // Status came from backend - use it directly
+        setUserConnectionStatus(user.id, user.status)
+        userLastActivity.value = {
+          ...userLastActivity.value,
+          [user.id]: user.last_activity || Date.now(),
+        }
+      } else {
+        // Check if this user was tracked as leaving another room (moved action)
+        const leavingInfo = usersLeavingRooms.value[user.id]
+        
+        if (leavingInfo && leavingInfo.lastActivity) {
+          // User moved from another room - update activity (moving is an interaction)
+          // But preserve their status if it was good (not away)
+          const now = Date.now()
+          userLastActivity.value = {
+            ...userLastActivity.value,
+            [user.id]: now, // Update activity since moving rooms is an interaction
+          }
+          
+          // Clear the leaving tracking since they've joined a new room
+          if (leavingInfo.timeoutId) {
+            clearTimeout(leavingInfo.timeoutId)
+          }
+          delete usersLeavingRooms.value[user.id]
+          
+          // Use preserved status if it was good, otherwise recalculate
+          const preservedStatus = leavingInfo.lastStatus
+          if (preservedStatus && preservedStatus !== 'away') {
+            // Preserve good status (active/inactive_tab) when moving rooms
+            setUserConnectionStatus(user.id, preservedStatus)
+          } else {
+            // Recalculate status with new activity (should be active since they just moved)
+            const initialStatus = calculateUserStatus(user)
+            setUserConnectionStatus(user.id, initialStatus)
+          }
+        } else {
+          // User is joining fresh (not moving from another room)
+          // Initialize user status tracking with current time
+          userLastActivity.value = {
+            ...userLastActivity.value,
+            [user.id]: Date.now(),
+          }
+          // Calculate and set initial status
+          const initialStatus = calculateUserStatus(user)
+          setUserConnectionStatus(user.id, initialStatus)
+        }
+      }
+      
+      // Default tab visibility to true (will be updated via ping/pong)
+      userTabVisibility.value = {
+        ...userTabVisibility.value,
+        [user.id]: true,
+      }
     }
 
     if (chatStore.currentRoom?.users && user && user.id) {
@@ -7065,7 +7986,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     
     // Show premium entry notification for other users
     if (user && user.premium_entry) {
-      console.log('👥 [PREMIUM ENTRY] Other user joining with premium entry:', user)
       const userData = {
         ...user,
         premium_entry: user.premium_entry || false,
@@ -7127,7 +8047,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         // Clean up tracking
         delete usersLeavingRooms.value[userId]
         
-        console.log(`User ${userId} moved from room ${oldRoomId} to room ${currentRoomId}`)
       }
       
       let content = ''
@@ -7170,19 +8089,15 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       )
       
       if (!existingMessage) {
-        console.log('Channel.joining: Adding system message for other user:', systemMessage)
-        console.log('Channel.joining: System message room_id:', systemMessage.room_id, 'Current room ID:', currentRoomId)
         chatStore.addMessage(systemMessage)
         nextTick(() => {
           scrollToBottom()
-          console.log('Channel.joining: Total messages after adding:', chatStore.messages.length)
         })
       }
     }
   })
   
   channel.leaving((user: any) => {
-    console.log('User leaving room:', user)
     
     if (chatStore.currentRoom?.users && user && user.id) {
       chatStore.currentRoom.users = chatStore.currentRoom.users.filter((u: any) => u.id !== user.id)
@@ -7194,25 +8109,37 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       const userId = user.id
       const roomId = Number(currentRoomId)
       
+      // Preserve user's last activity and status when they leave (they might be moving to another room)
+      // Store their current activity timestamp and status before they leave
+      const currentActivity = userLastActivity.value[userId]
+      const currentStatus = userConnectionStatus.value[userId]
+      
       // Clear any existing tracking for this user
       if (usersLeavingRooms.value[userId]?.timeoutId) {
         clearTimeout(usersLeavingRooms.value[userId].timeoutId)
       }
       
       // Track this user leaving (for detecting "moved" when they join another room)
-      // We'll clean this up when they join another room or after a reasonable time
+      // Preserve their activity and status so we can restore it if they're moving rooms
       usersLeavingRooms.value[userId] = {
         roomId: roomId,
         timestamp: Date.now(),
+        lastActivity: currentActivity, // Preserve activity timestamp
+        lastStatus: currentStatus, // Preserve status
         timeoutId: setTimeout(() => {
-          // Clean up old tracking after 10 seconds if user hasn't joined another room
-          // This is just cleanup, we don't send "left" messages here
-          delete usersLeavingRooms.value[userId]
-        }, 10000) as ReturnType<typeof setTimeout>
+          // Only mark as away if user hasn't joined another room within 5 seconds
+          // This gives time for them to join another room (moved action)
+          if (usersLeavingRooms.value[userId]) {
+            // User didn't join another room, mark as away
+            setUserConnectionStatus(userId, 'away')
+            // Clean up tracking
+            delete usersLeavingRooms.value[userId]
+          }
+        }, 5000) as ReturnType<typeof setTimeout> // Reduced to 5 seconds for faster detection
       }
       
-      // Mark user as disconnected when they leave presence channel (for status indicator only)
-      setUserConnectionStatus(user.id, 'disconnected')
+      // Don't immediately mark as away - wait to see if they join another room
+      // Keep their current status for now (will be updated when they join another room or after timeout)
     }
   })
   
@@ -7235,6 +8162,33 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         await nextTick()
         scrollToBottom()
       }
+    }
+  })
+
+  // Listen for system messages from backend (for "joined" on reconnect)
+  channel.listen('.system.message', (data: any) => {
+    if (data && data.meta?.is_system && String(data.room_id) === String(currentRoomId)) {
+      // Only handle "joined" messages for the current user (reconnect scenario)
+      if (data.meta?.action === 'joined' && data.user_id === authStore.user?.id) {
+        // Check if message already exists to avoid duplicates
+        const existingMessage = chatStore.messages.find((m: Message) => 
+          m.id === data.id || 
+          (m.meta?.is_system && 
+           m.user_id === data.user_id && 
+           m.meta?.action === 'joined' &&
+           m.room_id === data.room_id &&
+           Math.abs(new Date(m.created_at).getTime() - new Date(data.created_at).getTime()) < 2000)
+        )
+        
+        if (!existingMessage) {
+          chatStore.addMessage(data)
+          nextTick(() => {
+            scrollToBottom()
+          })
+        }
+      }
+      // For other users' "joined" messages, they're handled by channel.joining() event
+      // For "moved" messages, they're handled separately
     }
   })
 
@@ -7279,6 +8233,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         localStorage.setItem('auth_user', JSON.stringify(authStore.user))
       }
       settingsStore.loadFromUser(data.user)
+      // Recalculate status for current user when privacy settings change
+      const newStatus = calculateUserStatus(authStore.user)
+      setUserConnectionStatus(authStore.user.id, newStatus)
     }
     
     chatStore.messages.forEach((msg: Message) => {
@@ -7293,17 +8250,19 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       const userIndex = chatStore.currentRoom.users.findIndex((u: any) => u.id === data.user.id)
       if (userIndex !== -1) {
         Object.assign(chatStore.currentRoom.users[userIndex], data.user)
+        // Recalculate status for other users when their privacy settings change
+        const updatedUser = chatStore.currentRoom.users[userIndex]
+        const newStatus = calculateUserStatus(updatedUser)
+        setUserConnectionStatus(updatedUser.id, newStatus)
       }
     }
   })
 
   // Listen for "joined" events from other users via whisper
   channel.listenForWhisper('user.joined', (data: any) => {
-    console.log('Received "user.joined" whisper event:', data)
     if (data && data.meta?.is_system && data.meta?.action === 'joined') {
       // Don't add the message if it's from the current user (they're the one joining)
       if (data.user_id === authStore.user?.id) {
-        console.log('Skipping "joined" message - it\'s from the current user (joining user)')
         return
       }
       
@@ -7320,7 +8279,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         )
         
         if (!existingMessage) {
-          console.log('Adding "joined" message from whisper event (for other user):', data)
           chatStore.addMessage(data)
           nextTick(() => {
             scrollToBottom()
@@ -7332,11 +8290,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
 
   // Listen for "left" events from other users via whisper
   channel.listenForWhisper('user.left', (data: any) => {
-    console.log('Received "user.left" whisper event:', data)
     if (data && data.meta?.is_system && data.meta?.action === 'left') {
       // Don't add the message if it's from the current user (they're the one leaving)
       if (data.user_id === authStore.user?.id) {
-        console.log('Skipping "left" message - it\'s from the current user (leaving user)')
         return
       }
       
@@ -7353,7 +8309,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         )
         
         if (!existingMessage) {
-          console.log('Adding "left" message from whisper event (for other user):', data)
           chatStore.addMessage(data)
           nextTick(() => {
             scrollToBottom()
@@ -7365,11 +8320,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
 
   // Listen for "moved" events from other users via whisper
   channel.listenForWhisper('user.moved', (data: any) => {
-    console.log('Received "user.moved" whisper event:', data)
     if (data && data.meta?.is_system && data.meta?.action === 'moved') {
       // Don't add the message if it's from the current user (they're the one moving)
       if (data.user_id === authStore.user?.id) {
-        console.log('Skipping "moved" message - it\'s from the current user (moving user)')
         return
       }
       
@@ -7392,7 +8345,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         )
         
         if (!existingMessage) {
-          console.log('Adding "moved" message from whisper event (for other user):', data)
           chatStore.addMessage(data)
           nextTick(() => {
             scrollToBottom()
@@ -7402,17 +8354,39 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     }
   })
 
-  // Listen for ping events and respond with pong
+  // Listen for ping events and respond with pong (including tab visibility)
   channel.listenForWhisper('ping', (data: any) => {
     if (data && data.user_id && typeof data.user_id === 'number' && authStore.user?.id) {
-      // Respond with pong to indicate we're active
+      // Update the ping sender's tab visibility if provided
+      if (typeof data.tab_visible === 'boolean') {
+        userTabVisibility.value = {
+          ...userTabVisibility.value,
+          [data.user_id]: data.tab_visible,
+        }
+        
+        // Recalculate status immediately for the ping sender
+        const user = chatStore.currentRoom?.users?.find((u: any) => u.id === data.user_id) ||
+                     chatStore.activeUsers.find((u: any) => u.id === data.user_id)
+        if (user) {
+          const newStatus = calculateUserStatus(user)
+          setUserConnectionStatus(data.user_id, newStatus)
+        }
+      }
+      
+      // Respond with pong to indicate we're active (include our tab visibility)
       try {
-        channel.whisper('pong', {
-          user_id: authStore.user.id,
-          timestamp: Date.now(),
-        })
-        // Mark the ping sender as active
-        markUserActiveOnSocket(data.user_id)
+        if (channel.subscribed && typeof channel.whisper === 'function') {
+          channel.whisper('pong', {
+            user_id: authStore.user.id,
+            timestamp: Date.now(),
+            tab_visible: isTabVisible.value,
+            last_activity: currentUserLastActivity.value,
+          })
+          // Mark the ping sender as active
+          if (data.user_id !== authStore.user.id) {
+            markUserActiveOnSocket(data.user_id)
+          }
+        }
       } catch (error) {
         console.error('Error sending pong:', error)
       }
@@ -7428,13 +8402,12 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     // Skip current user - we handle them programmatically
     const isCurrentUser = data.user && data.user.id === authStore.user?.id
     if (isCurrentUser) {
-      console.log('Channel.presence: Skipping current user, handled programmatically')
       return
     }
     
     if (data.status === 'offline' && data.user) {
-      // Mark user as disconnected in status map based purely on socket presence
-      setUserConnectionStatus(data.user.id, 'disconnected')
+      // Mark user as away when they go offline
+      setUserConnectionStatus(data.user.id, 'away')
       // Remove last activity tracking
       const { [data.user.id]: _removed, ...rest } = userLastActivity.value
       userLastActivity.value = rest
@@ -7448,7 +8421,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
 
       // Show premium entry notification for other users only
       if (data.user.premium_entry) {
-        console.log('👥 [PREMIUM ENTRY] Other user coming online with premium entry:', data.user)
         const userData = {
           ...data.user,
           premium_entry: data.user.premium_entry || false,
@@ -7465,7 +8437,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       }
     } else if (data.status === 'afk' && data.user) {
       // Optional AFK support if backend sends it via socket
-      setUserConnectionStatus(data.user.id, 'afk')
+      // Recalculate status based on current rules
+      const newStatus = calculateUserStatus(data.user)
+      setUserConnectionStatus(data.user.id, newStatus)
     }
   })
 }
@@ -7514,6 +8488,17 @@ const openWarnings = async () => {
 // Removed saveSettingsOnClose - now using submit button approach
 
 onMounted(async () => {
+  // Load last activity from localStorage for immediate status calculation
+  if (authStore.user?.id) {
+    const loadedActivity = loadLastActivity()
+    currentUserLastActivity.value = loadedActivity
+    
+    // Immediately calculate and set status based on loaded activity
+    const user = authStore.user
+    const initialStatus = calculateUserStatus(user)
+    setUserConnectionStatus(user.id, initialStatus)
+  }
+  
   // Fetch emojis from database (cached for quick loading)
   try {
     await fetchEmojis()
@@ -7541,24 +8526,8 @@ onMounted(async () => {
   }, 120000) // Update every 2 minutes
 
   // Local AFK detection based purely on socket activity timestamps
-  setInterval(() => {
-    const now = Date.now()
-    const AFK_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
-
-    Object.entries(userLastActivity.value).forEach(([id, ts]) => {
-      const userId = Number(id)
-      if (!userId || !ts) return
-
-      const diff = now - ts
-      const currentStatus = userConnectionStatus.value[userId]
-
-      if (diff >= AFK_THRESHOLD_MS && currentStatus === 'online') {
-        setUserConnectionStatus(userId, 'afk')
-      } else if (diff < AFK_THRESHOLD_MS && (currentStatus === 'afk' || !currentStatus)) {
-        setUserConnectionStatus(userId, 'online')
-      }
-    })
-  }, 60000) // check every minute
+  // Old AFK check removed - now handled by statusCheckInterval in startPingPong
+  // Status updates happen every 1 minute via updateAllUsersStatus()
 
   // Load user profile data
   if (authStore.user) {
@@ -7570,7 +8539,6 @@ onMounted(async () => {
 
   // Check if password dialog is open - if so, don't proceed with setup
   if (showPasswordDialog.value) {
-    console.log('Password dialog is open, waiting for validation before proceeding')
     return
   }
 
@@ -7595,12 +8563,6 @@ onMounted(async () => {
         if (bootstrap.rooms && bootstrap.rooms.length > 0) {
           chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
         }
-        
-        console.log('Bootstrap data loaded after joining room:', {
-          settings: Object.keys(bootstrap.site_settings).length,
-          rooms: bootstrap.rooms.length,
-          shortcuts: bootstrap.shortcuts.length,
-        })
       }
     } catch (bootstrapError) {
       console.error('Error loading bootstrap data:', bootstrapError)
@@ -7610,7 +8572,6 @@ onMounted(async () => {
     // Fetch active users after room is loaded (non-blocking)
     try {
       await chatStore.fetchActiveUsers()
-      console.log('Active users loaded after joining room:', chatStore.displayActiveUsers.length)
 
       // Mark all active users (in any room) as online based on socket/global activity
       const allActiveUsers = chatStore.displayActiveUsers || []
@@ -7624,12 +8585,18 @@ onMounted(async () => {
       // Non-critical - continue without active users
     }
     
+    // Fetch private messages unread count (non-blocking)
+    try {
+      await privateMessagesStore.fetchUnreadCount()
+    } catch (error) {
+      console.error('Error loading private messages unread count:', error)
+      // Non-critical - continue without unread count
+    }
+    
     // Fetch wall posts for the room
     await fetchWallPosts()
   } catch (error: any) {
-    console.log('Error fetching room:', error)
-    console.log('Error data:', error.data)
-    console.log('Error status:', error.status)
+
     
     // Check if room requires password
     if (error.data?.requires_password || error.status === 403 || error.message?.includes('password')) {
@@ -7678,8 +8645,6 @@ onMounted(async () => {
   await new Promise(resolve => setTimeout(resolve, 1500)) // Wait 1.5 seconds for welcome/system messages
   
   if (chatStore.currentRoom) {
-    console.log('Room loaded, setting up scheduled messages. Room ID:', chatStore.currentRoom.id)
-    console.log('Scheduled messages in room:', chatStore.currentRoom.scheduled_messages)
     setupScheduledMessages(Number(roomId.value))
   } else {
     console.warn('Current room not set after fetchRoom')
@@ -7772,7 +8737,6 @@ onMounted(async () => {
         }
         
         pusher.connection.bind('connected', async () => {
-          console.log('✅ Socket connected in chat page')
           chatStore.setConnected(true)
           
           // Reset manual disconnect flag when connection is established
@@ -7784,12 +8748,8 @@ onMounted(async () => {
           }
           
           // When socket reconnects, treat network as restored:
-          // clear any global "internet_disconnected" markers
-          const updated: typeof userConnectionStatus.value = {}
-          Object.entries(userConnectionStatus.value).forEach(([id, status]) => {
-            updated[Number(id)] = status === 'internet_disconnected' ? 'online' : status
-          })
-          userConnectionStatus.value = updated
+          // recalculate status for all users (they'll be set to appropriate status based on activity)
+          updateAllUsersStatus()
           
           // Add connection message (only if not manually disconnected)
           if (!isManualDisconnect.value) {
@@ -7800,7 +8760,6 @@ onMounted(async () => {
         })
         
         pusher.connection.bind('disconnected', () => {
-          console.log('❌ Socket disconnected in chat page')
           chatStore.setConnected(false)
           
           // Mark as disconnected for reconnect detection
@@ -7809,10 +8768,10 @@ onMounted(async () => {
           // Only add disconnection message and update status if NOT manually disconnected
           // If manually disconnected, we already sent the message and don't want auto-reconnect
           if (!isManualDisconnect.value) {
-            // Mark all known users as "internet_disconnected" based on socket state only
+            // Mark all known users as "away" when socket disconnects
             const updated: typeof userConnectionStatus.value = {}
             Object.keys(userConnectionStatus.value).forEach((id) => {
-              updated[Number(id)] = 'internet_disconnected'
+              updated[Number(id)] = 'away'
             })
             userConnectionStatus.value = updated
             
@@ -7822,7 +8781,6 @@ onMounted(async () => {
         })
         
         pusher.connection.bind('error', () => {
-          console.log('❌ Socket connection error in chat page')
           chatStore.setConnected(false)
           
           // Add error message
@@ -7830,7 +8788,6 @@ onMounted(async () => {
         })
         
         pusher.connection.bind('state_change', (states: any) => {
-          console.log('🔄 Socket state changed in chat page:', states.previous, '->', states.current)
           chatStore.setConnected(states.current === 'connected')
           
           // Reset manual disconnect flag when connection is established
@@ -7875,11 +8832,61 @@ onMounted(async () => {
       currentChannel = echo.join(`room.${roomId.value}`)
       
       // Debug: Log channel subscription
-      console.log('Subscribing to presence channel:', `room.${roomId.value}`)
       
       // Set up all channel listeners using the extracted function
       setupChannelListeners(currentChannel, roomId.value)
       isSubscribed = true
+    }
+  }
+
+  // Subscribe to global presence channel for cross-room status updates (only once)
+  if (echo && authStore.user && !globalPresenceChannel) {
+    try {
+      globalPresenceChannel = echo.join('presence')
+      
+      globalPresenceChannel.subscribed(() => {
+        
+        // Set up ping/pong on global channel for cross-room status tracking
+        setupGlobalPresencePingPong(globalPresenceChannel)
+        
+        // Listen for user status updates from global channel
+        globalPresenceChannel.listen('.user.status.updated', (data: any) => {
+          if (data && data.user && data.user.id) {
+            const userId = data.user.id
+            const newStatus = data.status
+            
+            // Update user status in the global activeUsers list
+            const user = chatStore.activeUsers.find((u: any) => u.id === userId)
+            if (user) {
+              // Update user object with new status and privacy settings
+              if (data.user.incognito_mode_enabled !== undefined) {
+                user.incognito_mode_enabled = data.user.incognito_mode_enabled
+              }
+              if (data.user.private_messages_enabled !== undefined) {
+                user.private_messages_enabled = data.user.private_messages_enabled
+              }
+              
+              // Update status
+              setUserConnectionStatus(userId, newStatus)
+              
+              // Update last activity if provided
+              if (data.user.last_activity) {
+                userLastActivity.value = {
+                  ...userLastActivity.value,
+                  [userId]: data.user.last_activity,
+                }
+              }
+              
+            }
+          }
+        })
+      })
+      
+      globalPresenceChannel.error((error: any) => {
+        console.error('❌ Error subscribing to global presence channel:', error)
+      })
+    } catch (error) {
+      console.error('❌ Failed to subscribe to global presence channel:', error)
     }
   }
 
@@ -7889,12 +8896,10 @@ onMounted(async () => {
       userPrivateChannel = echo.private(`user.${authStore.user.id}`)
       
       userPrivateChannel.subscribed(() => {
-        console.log('✅ Subscribed to private user channel:', `user.${authStore.user?.id}`)
         isUserChannelSubscribed = true
         
         // Set up listener after subscription is confirmed
         userPrivateChannel.listen('.user.move.request', async (data: any) => {
-          console.log('📢 Received move request event:', data)
           
           if (data.target_room_id) {
             const targetRoomId = data.target_room_id
@@ -7903,7 +8908,6 @@ onMounted(async () => {
             // Navigate to the target room
             try {
               await navigateToRoom(targetRoomId)
-              console.log('✅ Successfully navigated to room:', targetRoomId)
             } catch (error) {
               console.error('❌ Error navigating to room:', error)
             }
@@ -7912,7 +8916,6 @@ onMounted(async () => {
 
         // Listen for ban event (inside subscribed callback)
         userPrivateChannel.listen('.user.banned', async (data: any) => {
-          console.log('🚫 Received ban event (subscribed callback):', data)
           
           try {
             // Clear auth and disconnect Echo
@@ -7937,11 +8940,75 @@ onMounted(async () => {
             window.location.href = '/'
           }
         })
+
+        // Listen for private messages
+        userPrivateChannel.listen('.private-message.sent', async (data: any) => {
+          try {
+            if (data && data.id) {
+              // Add message to store
+              privateMessagesStore.addMessage(data)
+              
+              // Update conversation list
+              if (data.sender && data.sender.id !== authStore.user?.id) {
+                // This is a message received from another user
+                const conversation: Conversation = {
+                  user: data.sender,
+                  last_message: {
+                    id: data.id,
+                    content: data.content,
+                    sender_id: data.sender_id,
+                    created_at: data.created_at,
+                    read_at: data.read_at,
+                  },
+                  unread_count: 1,
+                  message_count: 1,
+                  last_message_at: data.created_at,
+                }
+                privateMessagesStore.updateConversation(conversation)
+                
+                // Update unread count
+                await privateMessagesStore.fetchUnreadCount()
+                
+                // Mark as read if modal is open
+                if (showPrivateMessageModal.value && privateMessagesStore.currentConversation?.id === data.sender_id) {
+                  await privateMessagesStore.markAsRead(data.sender_id)
+                }
+              } else if (data.recipient && data.recipient.id !== authStore.user?.id) {
+                // This is a message sent to another user (confirmation)
+                // Update conversation
+                const conversation: Conversation = {
+                  user: data.recipient,
+                  last_message: {
+                    id: data.id,
+                    content: data.content,
+                    sender_id: data.sender_id,
+                    created_at: data.created_at,
+                    read_at: data.read_at,
+                  },
+                  unread_count: 0,
+                  message_count: 1,
+                  last_message_at: data.created_at,
+                }
+                privateMessagesStore.updateConversation(conversation)
+              }
+              
+              // Scroll to bottom if modal is open
+              if (showPrivateMessageModal.value && 
+                  (data.sender_id === privateMessagesStore.currentConversation?.id || 
+                   data.recipient_id === privateMessagesStore.currentConversation?.id)) {
+                nextTick(() => {
+                  scrollPrivateMessagesToBottom()
+                })
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error handling private message:', error)
+          }
+        })
       })
 
       // Also set up listener immediately (in case subscribed() doesn't fire)
       userPrivateChannel.listen('.user.move.request', async (data: any) => {
-        console.log('📢 Received move request event (immediate listener):', data)
         
         if (data.target_room_id) {
           const targetRoomId = data.target_room_id
@@ -7950,7 +9017,6 @@ onMounted(async () => {
           // Navigate to the target room
           try {
             await navigateToRoom(targetRoomId)
-            console.log('✅ Successfully navigated to room (immediate):', targetRoomId)
           } catch (error) {
             console.error('❌ Error navigating to room:', error)
           }
@@ -7959,7 +9025,6 @@ onMounted(async () => {
 
       // Listen for ban event (immediate listener)
       userPrivateChannel.listen('.user.banned', async (data: any) => {
-        console.log('🚫 Received ban event (immediate listener):', data)
         
         try {
           // Clear auth and disconnect Echo
@@ -8047,11 +9112,9 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
   
   // Check if password dialog is open - if so, don't proceed with setup
   if (showPasswordDialog.value) {
-    console.log('Password dialog is open, waiting for validation before proceeding with room switch')
     return
   }
   
-  console.log('Room changed from', oldRoomId, 'to', newRoomId, '- Messages preserved:', chatStore.messages.length)
   
   // Clear wall post notification when switching rooms
   if (hasNewWallPost.value) {
@@ -8079,7 +9142,6 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
   // Leave previous room channel if we have one
   // Note: We don't create a "left" message here because it's a "moved" event, not a "left" event
   if (oldRoomId && currentChannel) {
-    console.log('Leaving previous room channel:', `room.${oldRoomId}`)
     echo.leave(`room.${oldRoomId}`)
     currentChannel = null
     isSubscribed = false
@@ -8094,9 +9156,6 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
     // Fetch wall posts for the new room
     await fetchWallPosts()
   } catch (error: any) {
-    console.log('Error fetching room in watch:', error)
-    console.log('Error data:', error.data)
-    console.log('Error status:', error.status)
     
     // Check if room requires password
     if (error.data?.requires_password || error.status === 403 || error.message?.includes('password')) {
@@ -8163,16 +9222,16 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
   await new Promise(resolve => setTimeout(resolve, 1500)) // Wait 1.5 seconds for welcome/system messages
   
   if (chatStore.currentRoom) {
-    console.log('Room switched, setting up scheduled messages. Room ID:', chatStore.currentRoom.id)
-    console.log('Scheduled messages in room:', chatStore.currentRoom.scheduled_messages)
     setupScheduledMessages(Number(newRoomId))
-  } else {
-    console.warn('Current room not set after fetchRoom in watch handler')
   }
   
   // Subscribe to new room channel
-  console.log('Joining new room channel:', `room.${newRoomId}`)
   currentChannel = echo.join(`room.${newRoomId}`)
+  
+  // Mark current user as active when changing rooms (this is an interaction)
+  if (authStore.user?.id) {
+    markUserActiveOnSocket(authStore.user.id)
+  }
   
   // Set up all channel listeners
   setupChannelListeners(currentChannel, newRoomId)
@@ -8198,8 +9257,46 @@ const originalSettings = ref<{
 
 // No need to watch for panel close anymore - user will click submit button to save
 
+// Incognito mode enabled state
+const incognitoModeEnabled = computed({
+  get: () => authStore.user?.incognito_mode_enabled || false,
+  set: async (value: boolean) => {
+    if (!authStore.user?.id) return
+    
+    try {
+      const { $api } = useNuxtApp()
+      const updatedUser = await ($api as any)('/profile', {
+        method: 'PUT',
+        body: {
+          incognito_mode_enabled: value,
+        },
+      })
+      
+      // Update user in auth store
+      if (updatedUser && authStore.user) {
+        authStore.user.incognito_mode_enabled = updatedUser.incognito_mode_enabled
+        if (import.meta.client) {
+          localStorage.setItem('auth_user', JSON.stringify(authStore.user))
+        }
+        
+        // Recalculate status immediately
+        const newStatus = calculateUserStatus(authStore.user)
+        setUserConnectionStatus(authStore.user.id, newStatus)
+      }
+    } catch (error) {
+      console.error('Error saving incognito mode setting:', error)
+    }
+  }
+})
+
 watch(() => settingsStore.privateMessagesEnabled, (enabled) => {
-  settingsStore.setPrivateMessagesEnabled(enabled)
+  settingsStore.setPrivateMessagesEnabled(enabled).then(() => {
+    // Recalculate status after saving
+    if (authStore.user) {
+      const newStatus = calculateUserStatus(authStore.user)
+      setUserConnectionStatus(authStore.user.id, newStatus)
+    }
+  })
 })
 
 watch(() => settingsStore.notificationsEnabled, (enabled) => {

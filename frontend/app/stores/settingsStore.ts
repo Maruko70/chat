@@ -29,6 +29,8 @@ export const useSettingsStore = defineStore('settings', {
         this.nameBgColor = user.name_bg_color === null || user.name_bg_color === undefined ? 'transparent' : user.name_bg_color
         this.imageBorderColor = user.image_border_color || { r: 69, g: 9, b: 36 }
         this.bioColor = user.bio_color || { r: 107, g: 114, b: 128 }
+        // Load privacy settings from user object
+        this.privateMessagesEnabled = user.private_messages_enabled !== undefined ? user.private_messages_enabled : true
         
         // Reset flag after a short delay to allow watchers to settle
         // Use nextTick to ensure all reactive updates are complete
@@ -67,9 +69,29 @@ export const useSettingsStore = defineStore('settings', {
       this.bioColor = color
     },
 
-    setPrivateMessagesEnabled(enabled: boolean) {
+    async setPrivateMessagesEnabled(enabled: boolean) {
       this.privateMessagesEnabled = enabled
-      // This might not need API save, depending on requirements
+      // Save to API immediately
+      try {
+        const { $api } = useNuxtApp()
+        const authStore = useAuthStore()
+        const updatedUser = await ($api as any)('/profile', {
+          method: 'PUT',
+          body: {
+            private_messages_enabled: enabled,
+          },
+        })
+        
+        // Update user in auth store
+        if (updatedUser && authStore.user) {
+          authStore.user.private_messages_enabled = updatedUser.private_messages_enabled
+          if (import.meta.client) {
+            localStorage.setItem('auth_user', JSON.stringify(authStore.user))
+          }
+        }
+      } catch (error) {
+        console.error('Error saving private messages setting:', error)
+      }
     },
 
     setNotificationsEnabled(enabled: boolean) {

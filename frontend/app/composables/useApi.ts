@@ -51,39 +51,11 @@ export const useApi = () => {
     // Get response text first (might be obfuscated)
     const responseText = await response.text()
     
-    // Debug logging
-    if (import.meta.dev) {
-      console.log('[API] Response headers:', {
-        'Content-Type': response.headers.get('Content-Type'),
-        'X-Response-Encrypted': response.headers.get('X-Response-Encrypted'),
-      })
-      console.log('[API] Response text preview:', responseText.substring(0, 100))
-      console.log('[API] Response length:', responseText.length)
-    }
-    
     // Check if response is obfuscated (either by header or content format)
     const hasEncryptedHeader = response.headers.get('X-Response-Encrypted') === '1'
     const looksObfuscated = responseText && isObfuscated(responseText)
     const isEncrypted = hasEncryptedHeader || looksObfuscated
     
-    if (import.meta.dev) {
-      console.log('[API] Is encrypted?', isEncrypted, {
-        hasEncryptedHeader,
-        looksObfuscated,
-        contentType: response.headers.get('Content-Type'),
-      })
-      
-      // If it looks like JSON, try to parse it first to see if it's actually obfuscated
-      if (!isEncrypted && responseText.trim().startsWith('{')) {
-        try {
-          JSON.parse(responseText)
-          console.log('[API] Response is valid JSON, not obfuscated')
-        } catch {
-          console.log('[API] Response is not valid JSON, might be obfuscated')
-        }
-      }
-    }
-
     if (!response.ok) {
       // Try to deobfuscate error response
       let errorData: any
@@ -141,29 +113,17 @@ export const useApi = () => {
     if (isEncrypted) {
       try {
         const deobfuscated = await deobfuscateResponse(responseText)
-        if (import.meta.dev) {
-          console.log('[API] Successfully deobfuscated response')
-        }
         return deobfuscated
       } catch (error) {
         // If deobfuscation fails, log error
-        console.error('[API] Failed to deobfuscate response:', error)
-        console.warn('[API] Response text (first 200 chars):', responseText.substring(0, 200))
-        
+
         // Check if response format suggests it's actually obfuscated
         const definitelyObfuscated = responseText.includes('|') && responseText.length > 24
         
         if (definitelyObfuscated) {
-          // Response is definitely obfuscated but deobfuscation failed
-          // This usually means the keys don't match between frontend and backend
-          console.error('[API] ⚠️ Response is obfuscated but deobfuscation failed!')
-          console.error('[API] This usually means NUXT_PUBLIC_OBFUSCATION_KEY (frontend) and RESPONSE_OBFUSCATION_KEY (backend) don\'t match!')
-          console.error('[API] Check your .env files in both frontend and backend directories.')
-          
           // Try to parse as plain JSON anyway (might work if key is close)
           try {
             const parsed = JSON.parse(responseText)
-            console.warn('[API] Response was not obfuscated, parsed as plain JSON')
             return parsed
           } catch (parseError) {
             // If that also fails, throw a clear error
@@ -173,12 +133,8 @@ export const useApi = () => {
           // Response might not be obfuscated, try to parse as plain JSON
           try {
             const parsed = JSON.parse(responseText)
-            console.warn('[API] Response was not obfuscated, parsed as plain JSON')
             return parsed
           } catch (parseError) {
-            // If that also fails, log more details
-            console.error('[API] Failed to parse as JSON:', parseError)
-            console.error('[API] Full response text:', responseText.substring(0, 500))
             throw new Error(`Failed to deobfuscate or parse response: ${(error as Error).message}`)
           }
         }
@@ -189,9 +145,6 @@ export const useApi = () => {
     try {
       return JSON.parse(responseText)
     } catch (parseError) {
-      if (import.meta.dev) {
-        console.warn('[API] Response is not JSON, returning as text')
-      }
       return responseText
     }
   }

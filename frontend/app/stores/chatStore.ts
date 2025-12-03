@@ -182,7 +182,6 @@ export const useChatStore = defineStore('chat', {
       // Check if message already exists
       const existingMessage = this.messages.find(m => m.id === message.id)
       if (existingMessage) {
-        console.log('Message already exists:', message.id)
         return
       }
       
@@ -227,7 +226,6 @@ export const useChatStore = defineStore('chat', {
       }
       
       this.messages.push(message)
-      console.log('Message added to store:', message.id, 'Total messages:', this.messages.length)
     },
 
     setCurrentRoom(room: Room | null) {
@@ -243,9 +241,7 @@ export const useChatStore = defineStore('chat', {
       try {
         const { $api } = useNuxtApp()
         const users = await $api('/users/active')
-        console.log('Fetched active users from API:', users)
         this.activeUsers = Array.isArray(users) ? users : []
-        console.log('Set activeUsers to:', this.activeUsers.length, 'users')
         return this.activeUsers
       } catch (error: any) {
         console.error('Error fetching active users:', error)
@@ -262,11 +258,7 @@ export const useChatStore = defineStore('chat', {
       if (userIndex !== -1) {
         // Update existing user with new data
         Object.assign(this.activeUsers[userIndex], userData)
-        console.log('Updated user in active users list:', userData.id)
-      } else {
-        // User not in list, but that's okay - they might not be active
-        console.log('User not found in active users list:', userData.id)
-      }
+      } 
     },
     
     setConnected(connected: boolean) {
