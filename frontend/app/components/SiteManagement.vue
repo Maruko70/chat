@@ -19,12 +19,12 @@
     </div>
 
     <!-- Settings Form -->
-    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div v-else class="grid grid-cols-1 gap-6">
       <!-- Images Section -->
       <Card>
         <template #title>الصور الافتراضية</template>
         <template #content>
-          <div class="space-y-6">
+          <div class="space-x-6 grid grid-cols-4">
             <!-- Favicon -->
             <div>
               <label class="block text-sm font-medium mb-2">أيقونة الموقع (Favicon)</label>
@@ -192,7 +192,7 @@
       <Card>
         <template #title>ألوان الموقع</template>
         <template #content>
-          <div class="space-y-4">
+          <div class="space-x-4 grid grid-cols-3 gap-4 justify-center items-center">
             <!-- Primary Color -->
             <div>
               <label class="block text-sm font-medium mb-2">اللون الأساسي</label>
@@ -268,20 +268,40 @@
         </template>
       </Card>
 
+      <!-- Site Name Section -->
+      <Card>
+        <template #title>عنوان الصفحة الرئيسية</template>
+        <template #content>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-2">اسم الموقع (Site Name)</label>
+              <InputText
+                v-model="siteNameForm.name"
+                class="w-full"
+                placeholder="اسم الموقع"
+              />
+              <small class="text-gray-500 text-xs mt-1">
+                سيظهر في الصفحة الرئيسية (عنوان مرئي للمستخدمين)
+              </small>
+            </div>
+          </div>
+        </template>
+      </Card>
+
       <!-- SEO Section -->
       <Card>
         <template #title>إعدادات SEO</template>
         <template #content>
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium mb-2">عنوان الموقع (Title)</label>
+              <label class="block text-sm font-medium mb-2">عنوان SEO (SEO Title)</label>
               <InputText
                 v-model="seoForm.title"
                 class="w-full"
-                placeholder="عنوان الموقع"
+                placeholder="عنوان SEO"
               />
               <small class="text-gray-500 text-xs mt-1">
-                سيظهر في نتائج محركات البحث
+                سيظهر في نتائج محركات البحث (مختلف عن عنوان الصفحة الرئيسية)
               </small>
             </div>
 
@@ -366,7 +386,7 @@
       <Card>
         <template #title>إعدادات منع الإفراط في الطلبات</template>
         <template #content>
-          <div class="space-y-4">
+          <div class="space-x-4 grid grid-cols-3 gap-4 justify-center items-center">
             <div>
               <label class="block text-sm font-medium mb-2">
                 عدد الطلبات المسموحة (Ignore Count)
@@ -436,6 +456,10 @@ const saving = ref(false)
 const settings = ref<Record<string, any>>({})
 const imageFiles = ref<Record<string, File>>({})
 
+const siteNameForm = ref({
+  name: '',
+})
+
 const seoForm = ref({
   title: '',
   description: '',
@@ -461,6 +485,11 @@ const fetchSettings = async () => {
   try {
     const data = await $api('/site-settings')
     settings.value = data
+    
+    // Load site name
+    siteNameForm.value = {
+      name: data.site_name?.value || '',
+    }
     
     // Load SEO settings
     seoForm.value = {
@@ -632,6 +661,11 @@ const onOgImageSelect = (event: any) => {
 const saveAllSettings = async () => {
   saving.value = true
   try {
+    // Save site name (home page title)
+    const siteNameSettings = [
+      { key: 'site_name', value: siteNameForm.value.name },
+    ]
+    
     // Save SEO settings
     const seoSettings = [
       { key: 'seo_title', value: seoForm.value.title },
@@ -655,6 +689,15 @@ const saveAllSettings = async () => {
     ]
     
     await Promise.all([
+      ...siteNameSettings.map(setting =>
+        $api(`/site-settings/${setting.key}`, {
+          method: 'PUT',
+          body: {
+            value: setting.value,
+            type: 'text',
+          },
+        })
+      ),
       ...seoSettings.map(setting =>
         $api(`/site-settings/${setting.key}`, {
           method: 'PUT',

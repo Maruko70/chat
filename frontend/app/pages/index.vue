@@ -16,7 +16,7 @@
                 />
                 <span v-else class="text-white text-xs font-bold">شات</span>
               </div>
-              <h1 class="font-bold text-primary">{{ siteName.split('-')[0] }}</h1> 
+              <h1 class="font-bold text-primary">{{ siteName }}</h1> 
             </div>
             <Button icon="pi pi-refresh" class="shadow-sm mx-1 rounded text-xs" @click="refreshPage" />
           </div>
@@ -214,7 +214,7 @@
       <!-- Footer -->
       <footer class="border-t w-full flex-shrink-0" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
         <div class="px-4 py-4 text-center text-sm text-gray-600">
-          حقوق النشر © 2025 شات فورجي الخليج. جميع الحقوق محفوظة
+          حقوق النشر © 2025 {{ siteName }}. جميع الحقوق محفوظة
         </div>
       </footer>
     </div>
@@ -332,24 +332,14 @@ const handleLogin = async () => {
   try {
     await authStore.login(loginForm.value.username, loginForm.value.password)
     
-    await nextTick()
-    
-    // Wait a bit for message to show before redirecting
-    setTimeout(async () => {
-      // Fetch general room and redirect to it
-      const generalRoom = await chatStore.fetchGeneralRoom()
-      if (generalRoom && generalRoom.id) {
-        await router.push(`/chat/${generalRoom.id}`)
-      } else {
-        await router.push('/chat')
-      }
-    }, 2000)
+    // Navigate IMMEDIATELY to general room (ID is always 1)
+    loginLoading.value = false
+    router.push('/chat/1')
   } catch (err: any) {
+    loginLoading.value = false
     await nextTick()
     const errorMessage = err?.data?.message || err?.message || 'فشل تسجيل الدخول. يرجى التحقق من بيانات الاعتماد.'
     showMessage('error', 'خطأ في تسجيل الدخول', errorMessage)
-  } finally {
-    loginLoading.value = false
   }
 }
 
@@ -362,24 +352,14 @@ const handleRegister = async () => {
       registerForm.value.password
     )
     
-    await nextTick()
-    
-    // Wait a bit for message to show before redirecting
-    setTimeout(async () => {
-      // Fetch general room and redirect to it
-      const generalRoom = await chatStore.fetchGeneralRoom()
-      if (generalRoom && generalRoom.id) {
-        await router.push(`/chat/${generalRoom.id}`)
-      } else {
-        await router.push('/chat')
-      }
-    }, 2000)
+    // Navigate IMMEDIATELY to general room (ID is always 1)
+    registerLoading.value = false
+    router.push('/chat/1')
   } catch (err: any) {
+    registerLoading.value = false
     await nextTick()
     const errorMessage = err?.data?.message || err?.message || 'فشل التسجيل. يرجى المحاولة مرة أخرى.'
     showMessage('error', 'خطأ في التسجيل', errorMessage)
-  } finally {
-    registerLoading.value = false
   }
 }
 
@@ -389,24 +369,14 @@ const handleGuestLogin = async () => {
   try {
     await authStore.guestLogin(guestForm.value.username)
     
-    await nextTick()
-    
-    // Wait a bit for message to show before redirecting
-    setTimeout(async () => {
-      // Fetch general room and redirect to it
-      const generalRoom = await chatStore.fetchGeneralRoom()
-      if (generalRoom && generalRoom.id) {
-        await router.push(`/chat/${generalRoom.id}`)
-      } else {
-        await router.push('/chat')
-      }
-    }, 2000)
+    // Navigate IMMEDIATELY to general room (ID is always 1)
+    guestLoading.value = false
+    router.push('/chat/1')
   } catch (err: any) {
+    guestLoading.value = false
     await nextTick()
     const errorMessage = err?.data?.message || err?.message || 'فشل دخول الزوار. يرجى المحاولة مرة أخرى.'
     showMessage('error', 'خطأ في دخول الزوار', errorMessage)
-  } finally {
-    guestLoading.value = false
   }
 }
 
@@ -644,19 +614,8 @@ watch(() => authStore.isAuthenticated, async (isAuth) => {
       }
     }
     
-    // Small delay to show success message
-    setTimeout(async () => {
-      try {
-        const generalRoom = await chatStore.fetchGeneralRoom()
-        if (generalRoom && generalRoom.id) {
-          await router.push(`/chat/${generalRoom.id}`)
-        } else {
-          await router.push('/chat')
-        }
-      } catch (error) {
-        await router.push('/chat')
-      }
-    }, 500)
+    // Navigate IMMEDIATELY to general room (ID is always 1)
+    router.push('/chat/1')
   } else {
     // User logged out, set connection to false
     chatStore.setConnected(false)

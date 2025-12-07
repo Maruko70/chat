@@ -1,11 +1,12 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex">
+  <div class="min-h-screen bg-gray-50 flex overflow-x-hidden">
     <!-- Sidebar -->
     <aside
       :class="[
-        'bg-white border-l shadow-lg transition-transform duration-300 z-40',
-        'fixed lg:static h-screen w-64 flex flex-col',
-        sidebarVisible ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+        'bg-white border-r shadow-lg transition-transform duration-300 z-40',
+        'fixed lg:static h-screen w-64 flex flex-col left-0',
+        sidebarVisible ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+        !sidebarVisible ? 'pointer-events-none lg:pointer-events-auto' : ''
       ]"
     >
       <!-- Sidebar Header -->
@@ -47,7 +48,7 @@
       class="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
       @click="sidebarVisible = false"
     ></div>
-
+ 
     <!-- Main Content -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Header -->
@@ -292,5 +293,23 @@ onUnmounted(() => {
 
 <style scoped>
 /* Custom styles for dashboard */
+/* Prevent horizontal overflow */
+.min-h-screen {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Ensure sidebar is completely hidden on mobile when closed */
+@media (max-width: 1023px) {
+  aside {
+    left: 0;
+    max-width: 100vw;
+  }
+  
+  /* When closed, ensure sidebar is completely off-screen to the left */
+  aside.-translate-x-full {
+    transform: translateX(-100%) !important;
+  }
+}
 </style>
 

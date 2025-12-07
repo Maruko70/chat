@@ -267,8 +267,45 @@ const createRoom = async () => {
   }
 }
 
-onMounted(() => {
-  fetchRooms()
+onMounted(async () => {
+  // Check if we already have rooms cached (from bootstrap or previous fetch)
+  const cachedRooms = chatStore.displayRooms
+  
+  // Try to find general room from cached rooms first (instant check)
+  if (cachedRooms && cachedRooms.length > 0) {
+    // General room is typically the first public room or has a specific name
+    // Try to find it by checking if it's the first room or has "general" in name
+    const generalRoom = cachedRooms.find((room: Room) => 
+      room.is_public && (room.name?.toLowerCase().includes('general') || room.id === 1)
+    ) || cachedRooms[0] // Fallback to first room
+    
+    if (generalRoom && generalRoom.id) {
+      // Navigate immediately to cached general room
+      router.replace(`/chat/${generalRoom.id}`)
+      return
+    }
+  }
+  
+  // If no cached rooms, fetch rooms and general room in parallel
+  const [roomsResult, generalRoomResult] = await Promise.allSettled([
+    fetchRooms(),
+    chatStore.fetchGeneralRoom()
+  ])
+  
+  // Try to redirect to general room
+  if (generalRoomResult.status === 'fulfilled' && generalRoomResult.value?.id) {
+    router.replace(`/chat/${generalRoomResult.value.id}`)
+  } else if (roomsResult.status === 'fulfilled') {
+    // If general room fetch failed, try to find it from rooms list
+    const rooms = roomsResult.value || chatStore.displayRooms
+    const generalRoom = rooms?.find((room: Room) => 
+      room.is_public && (room.name?.toLowerCase().includes('general') || room.id === 1)
+    ) || rooms?.[0]
+    
+    if (generalRoom?.id) {
+      router.replace(`/chat/${generalRoom.id}`)
+    }
+  }
 })
 </script>
 

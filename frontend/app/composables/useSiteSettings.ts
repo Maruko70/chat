@@ -104,7 +104,7 @@ export const useSiteSettings = () => {
   })
 
   const siteName = computed(() => {
-    return getSetting('site_name', getSetting('seo_title', 'شات فورجي الكتابي'))
+    return getSetting('site_name', '')
   })
 
   // Helper functions for backward compatibility

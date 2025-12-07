@@ -344,7 +344,7 @@
               >
             </Button>
             <InputText ref="messageInput" v-model="messageContent" placeholder="اكتب رسالتك هنا..."
-              class="w-full md:w-auto text-xs sm:text-sm" size="small" :disabled="sending || showPasswordDialog || !chatStore.currentRoom" />
+              class="w-auto md:w-full text-xs sm:text-sm" size="small" :disabled="sending || showPasswordDialog || !chatStore.currentRoom" />
             <Button type="submit" text label="إرسال" :loading="sending" :disabled="!messageContent.trim() || showPasswordDialog || !chatStore.currentRoom"
               class="flex-shrink-0 btn-styled !text-white hover:!text-white border-0 !p-2 sm:!p-2" :style="{ backgroundColor: 'var(--site-button-color, #450924)' }" v-tooltip.top="!chatStore.currentRoom ? 'يرجى الانضمام إلى غرفة أولاً' : 'إرسال'" />
           </form>
