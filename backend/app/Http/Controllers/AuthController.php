@@ -68,9 +68,20 @@ class AuthController extends Controller
         }
 
         $validated = $request->validate([
-            'username' => 'required|string|max:255|unique:users,username',
+            'username' => 'required|string|max:255',
             'password' => 'required|string|min:1',
         ]);
+
+        // Check if username is already taken by a non-guest user
+        $existingUser = User::where('username', $validated['username'])
+            ->where('is_guest', false)
+            ->first();
+        
+        if ($existingUser) {
+            throw ValidationException::withMessages([
+                'username' => ['The username has already been taken.'],
+            ]);
+        }
 
         // Get IP address and country data
         $ipService = new IpGeolocationService();
@@ -80,24 +91,63 @@ class AuthController extends Controller
         $countryCode = $countryData['countryCode'] ?? 'SA'; // Default to SA
         $countryFlag = $ipService->countryCodeToFlag($countryCode); // Will always return a flag now
 
-        $user = User::create([
-            'username' => $validated['username'],
-            'name' => $validated['username'], // Use username as name initially
-            'password' => Hash::make($validated['password']),
-            'is_guest' => false,
-            'ip_address' => $ipAddress,
-            'country' => $country,
-            'country_code' => $countryCode,
-            'country_flag' => $countryFlag,
-        ]);
-
-        // Assign default role group (priority 0) to new user
-        $defaultRoleGroup = RoleGroup::where('priority', 0)
-            ->where('is_active', true)
+        // Check if a guest account exists with this username
+        $guestUser = User::where('username', $validated['username'])
+            ->where('is_guest', true)
             ->first();
-        
-        if ($defaultRoleGroup) {
-            $user->roleGroups()->attach($defaultRoleGroup->id);
+
+        if ($guestUser) {
+            // Check if guest user is banned
+            $bannedUser = BannedUser::where('user_id', $guestUser->id)->active()->first();
+            if ($bannedUser) {
+                throw ValidationException::withMessages([
+                    'username' => ['Request rejected.'],
+                ]);
+            }
+
+            // Convert guest account to regular account
+            $guestUser->update([
+                'password' => Hash::make($validated['password']),
+                'is_guest' => false,
+                'ip_address' => $ipAddress,
+                'country' => $country,
+                'country_code' => $countryCode,
+                'country_flag' => $countryFlag,
+            ]);
+
+            $user = $guestUser;
+
+            // Ensure default role group is assigned if guest doesn't have any role groups
+            if ($user->roleGroups()->count() === 0) {
+                $defaultRoleGroup = RoleGroup::where('priority', 0)
+                    ->where('is_active', true)
+                    ->first();
+                
+                if ($defaultRoleGroup) {
+                    $user->roleGroups()->attach($defaultRoleGroup->id);
+                }
+            }
+        } else {
+            // Create new user account
+            $user = User::create([
+                'username' => $validated['username'],
+                'name' => $validated['username'], // Use username as name initially
+                'password' => Hash::make($validated['password']),
+                'is_guest' => false,
+                'ip_address' => $ipAddress,
+                'country' => $country,
+                'country_code' => $countryCode,
+                'country_flag' => $countryFlag,
+            ]);
+
+            // Assign default role group (priority 0) to new user
+            $defaultRoleGroup = RoleGroup::where('priority', 0)
+                ->where('is_active', true)
+                ->first();
+            
+            if ($defaultRoleGroup) {
+                $user->roleGroups()->attach($defaultRoleGroup->id);
+            }
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;

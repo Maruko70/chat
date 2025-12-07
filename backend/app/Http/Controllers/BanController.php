@@ -231,6 +231,121 @@ class BanController extends Controller
     }
 
     /**
+     * Ban a user due to rate limit violation (self-ban by system).
+     */
+    public function banUserRateLimit(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ban_minutes' => 'required|integer|min:0',
+        ]);
+
+        $user = $request->user();
+        
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        // Check if user is already banned
+        $existingBan = BannedUser::where('user_id', $user->id)->active()->first();
+        if ($existingBan) {
+            return response()->json(['message' => 'User is already banned'], 400);
+        }
+
+        // Get IP and country from request
+        $ipAddress = $this->ipService->getClientIp($request);
+        if (!$ipAddress && $user->ip_address) {
+            $ipAddress = $user->ip_address;
+        }
+        if (!$ipAddress) {
+            $ipAddress = '0.0.0.0';
+        }
+        
+        $country = $this->ipService->getCountryFromIp($ipAddress);
+        if (!$country && $user->country) {
+            $country = $user->country;
+        }
+        
+        $userAgent = $request->userAgent();
+        $device = $userAgent ? $this->userAgentService->detectBrowser($userAgent) : 'Unknown';
+
+        // Calculate ends_at based on ban_minutes
+        $endsAt = null;
+        $isPermanent = false;
+        if ($validated['ban_minutes'] > 0) {
+            $endsAt = now()->addMinutes($validated['ban_minutes']);
+        } else {
+            // If 0 minutes, it's a kick (no ban record needed, but we'll create one for tracking)
+            // Actually, if 0, we shouldn't create a ban record - just kick
+            return response()->json([
+                'message' => 'User will be kicked (no ban record)',
+                'kick_only' => true
+            ]);
+        }
+
+        $bannedUser = BannedUser::create([
+            'user_id' => $user->id,
+            'username' => $user->username,
+            'name' => $user->name,
+            'banned_by' => $user->id, // Self-ban by system (rate limit)
+            'reason' => 'Rate limit violation - Excessive requests',
+            'device' => $device,
+            'ip_address' => $ipAddress,
+            'account_name' => $user->username,
+            'country' => $country,
+            'banned_at' => now(),
+            'ends_at' => $endsAt,
+            'is_permanent' => $isPermanent,
+        ]);
+
+        // Update user's is_blocked status
+        $user->update(['is_blocked' => true]);
+
+        // Revoke all tokens for the banned user to force logout
+        $user->tokens()->delete();
+
+        // Remove user from all rooms
+        $userRooms = DB::table('room_user')->where('user_id', $user->id)->get();
+        foreach ($userRooms as $userRoom) {
+            $room = Room::find($userRoom->room_id);
+            if ($room) {
+                $room->users()->detach($user->id);
+                // Broadcast user left message to all rooms
+                broadcast(new \App\Events\SystemMessage($user, (int)$userRoom->room_id, 'left'));
+                broadcast(new \App\Events\UserPresence($user, 'offline', (int)$userRoom->room_id))->toOthers();
+            }
+        }
+
+        $bannedUser->load(['user', 'bannedBy']);
+
+        // Broadcast ban event to the banned user
+        broadcast(new \App\Events\UserBanned($user, $bannedUser));
+
+        return response()->json([
+            'message' => 'User banned due to rate limit violation',
+            'ban' => $bannedUser,
+        ]);
+
+        // Remove user from all rooms
+        $userRooms = DB::table('room_user')->where('user_id', $user->id)->get();
+        foreach ($userRooms as $userRoom) {
+            $room = Room::find($userRoom->room_id);
+            if ($room) {
+                $room->users()->detach($user->id);
+                // Broadcast user left message to all rooms
+                broadcast(new \App\Events\SystemMessage($user, (int)$userRoom->room_id, 'left'));
+                broadcast(new \App\Events\UserPresence($user, 'offline', (int)$userRoom->room_id))->toOthers();
+            }
+        }
+
+        $bannedUser->load(['user', 'bannedBy']);
+
+        // Broadcast ban event to the banned user
+        broadcast(new \App\Events\UserBanned($user, $bannedUser));
+
+        return response()->json($bannedUser, 201);
+    }
+
+    /**
      * Unban a user.
      */
     public function unbanUser(string $id): JsonResponse

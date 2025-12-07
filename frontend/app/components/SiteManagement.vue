@@ -361,6 +361,65 @@
           </div>
         </template>
       </Card>
+
+      <!-- Rate Limiting Settings -->
+      <Card>
+        <template #title>إعدادات منع الإفراط في الطلبات</template>
+        <template #content>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-2">
+                عدد الطلبات المسموحة (Ignore Count)
+                <span class="text-red-500">*</span>
+              </label>
+              <InputNumber
+                v-model="rateLimitForm.ignore_count"
+                :min="1"
+                :max="100"
+                class="w-full"
+                placeholder="5"
+              />
+              <small class="text-gray-500 text-xs mt-1">
+                عدد الطلبات المسموحة خلال دقيقة واحدة قبل التجاهل
+              </small>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium mb-2">
+                عدد مرات التجاهل قبل الحظر (Ignore Time Till Ban)
+                <span class="text-red-500">*</span>
+              </label>
+              <InputNumber
+                v-model="rateLimitForm.ignore_time_till_ban"
+                :min="1"
+                :max="20"
+                class="w-full"
+                placeholder="3"
+              />
+              <small class="text-gray-500 text-xs mt-1">
+                عدد مرات ظهور رسالة التجاهل قبل حظر المستخدم مؤقتاً
+              </small>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium mb-2">
+                مدة الحظر بالدقائق (Ignore Ban Time Minutes)
+                <span class="text-red-500">*</span>
+              </label>
+              <InputNumber
+                v-model="rateLimitForm.ignore_ban_time_minutes"
+                :min="0"
+                :max="1440"
+                class="w-full"
+                placeholder="5"
+              />
+              <small class="text-gray-500 text-xs mt-1">
+                مدة الحظر بالدقائق عند الوصول لعدد مرات التجاهل المحدد (0 = طرد المستخدم بدلاً من الحظر)
+              </small>
+            </div>
+          </div>
+        </template>
+      </Card>
     </div>
   </div>
 </template>
@@ -390,6 +449,12 @@ const colorsForm = ref({
   button: '#450924',
 })
 
+const rateLimitForm = ref({
+  ignore_count: 5,
+  ignore_time_till_ban: 3,
+  ignore_ban_time_minutes: 5,
+})
+
 // Methods
 const fetchSettings = async () => {
   loading.value = true
@@ -410,6 +475,13 @@ const fetchSettings = async () => {
       primary: data.site_primary_color?.value || '#450924',
       secondary: data.site_secondary_color?.value || '#ffffff',
       button: data.site_button_color?.value || '#450924',
+    }
+    
+    // Load rate limit settings
+    rateLimitForm.value = {
+      ignore_count: parseInt(data.ignore_count?.value || '5'),
+      ignore_time_till_ban: parseInt(data.ignore_time_till_ban?.value || '3'),
+      ignore_ban_time_minutes: parseInt(data.ignore_ban_time_minutes?.value ?? '5'),
     }
   } catch (error: any) {
     toast.add({
@@ -575,6 +647,13 @@ const saveAllSettings = async () => {
       { key: 'site_button_color', value: colorsForm.value.button },
     ]
     
+    // Save rate limit settings
+    const rateLimitSettings = [
+      { key: 'ignore_count', value: (rateLimitForm.value.ignore_count ?? 5).toString(), type: 'number' },
+      { key: 'ignore_time_till_ban', value: (rateLimitForm.value.ignore_time_till_ban ?? 3).toString(), type: 'number' },
+      { key: 'ignore_ban_time_minutes', value: (rateLimitForm.value.ignore_ban_time_minutes ?? 5).toString(), type: 'number' },
+    ]
+    
     await Promise.all([
       ...seoSettings.map(setting =>
         $api(`/site-settings/${setting.key}`, {
@@ -591,6 +670,20 @@ const saveAllSettings = async () => {
           body: {
             value: setting.value,
             type: 'color',
+          },
+        })
+      ),
+      ...rateLimitSettings.map(setting =>
+        $api(`/site-settings/${setting.key}`, {
+          method: 'PUT',
+          body: {
+            value: setting.value,
+            type: setting.type,
+            description: setting.key === 'ignore_count' 
+              ? 'عدد الطلبات المسموحة خلال دقيقة واحدة قبل التجاهل'
+              : setting.key === 'ignore_time_till_ban'
+              ? 'عدد مرات ظهور رسالة التجاهل قبل حظر المستخدم مؤقتاً'
+              : 'مدة الحظر بالدقائق عند الوصول لعدد مرات التجاهل المحدد',
           },
         })
       ),

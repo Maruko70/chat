@@ -24,85 +24,110 @@ class PrivateMessageController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-
-        // Get all conversations (users the current user has exchanged messages with)
-        $conversations = PrivateMessage::where(function ($query) use ($user) {
-            $query->where('sender_id', $user->id)
-                  ->orWhere('recipient_id', $user->id);
-        })
-        ->selectRaw('
-            CASE 
-                WHEN sender_id = ? THEN recipient_id 
-                ELSE sender_id 
-            END as other_user_id,
-            MAX(created_at) as last_message_at,
-            COUNT(*) as message_count,
-            SUM(CASE WHEN recipient_id = ? AND read_at IS NULL THEN 1 ELSE 0 END) as unread_count
-        ', [$user->id, $user->id])
-        ->groupByRaw('CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END', [$user->id])
-        ->orderBy('last_message_at', 'desc')
-        ->get();
-
-        // Load user details for each conversation
-        $conversationsData = $conversations->map(function ($conversation) use ($user) {
-            $otherUser = User::with('media', 'roleGroups')->find($conversation->other_user_id);
+        $userId = $user->id;
+        
+        // Cache key specific to user (conversations are user-specific)
+        $cacheKey = "private_conversations_user_{$userId}";
+        
+        // Cache for 2 minutes (conversations change frequently with new messages)
+        $conversationsData = Cache::remember($cacheKey, 120, function () use ($user, $userId) {
+            // Get all conversations (users the current user has exchanged messages with)
+            // Using a subquery approach that's PostgreSQL-compliant
+            $conversations = DB::select("
+                SELECT 
+                    other_user_id,
+                    MAX(created_at) as last_message_at,
+                    COUNT(*) as message_count,
+                    SUM(CASE WHEN recipient_id = ? AND read_at IS NULL THEN 1 ELSE 0 END) as unread_count
+                FROM (
+                    SELECT 
+                        CASE 
+                            WHEN sender_id = ? THEN recipient_id 
+                            ELSE sender_id 
+                        END as other_user_id,
+                        created_at,
+                        recipient_id,
+                        read_at
+                    FROM private_messages
+                    WHERE sender_id = ? OR recipient_id = ?
+                ) as pm
+                GROUP BY other_user_id
+                ORDER BY last_message_at DESC
+            ", [$userId, $userId, $userId, $userId]);
             
-            if (!$otherUser) {
-                return null;
-            }
+            // Convert to collection for consistency
+            $conversations = collect($conversations);
 
-            // Get the last message
-            $lastMessage = PrivateMessage::where(function ($query) use ($user, $otherUser) {
-                $query->where(function ($q) use ($user, $otherUser) {
-                    $q->where('sender_id', $user->id)
-                      ->where('recipient_id', $otherUser->id);
-                })->orWhere(function ($q) use ($user, $otherUser) {
-                    $q->where('sender_id', $otherUser->id)
-                      ->where('recipient_id', $user->id);
-                });
-            })
-            ->orderBy('created_at', 'desc')
-            ->first();
+            // Load user details for each conversation
+            return $conversations->map(function ($conversation) use ($user) {
+                $otherUser = User::with('media', 'roleGroups')->find($conversation->other_user_id);
+                
+                if (!$otherUser) {
+                    return null;
+                }
 
-            return [
-                'user' => [
-                    'id' => $otherUser->id,
-                    'name' => $otherUser->name,
-                    'username' => $otherUser->username,
-                    'avatar_url' => $otherUser->avatar_url,
-                    'country_code' => $otherUser->country_code,
-                    'name_color' => $otherUser->name_color,
-                    'message_color' => $otherUser->message_color,
-                    'name_bg_color' => $otherUser->name_bg_color,
-                    'image_border_color' => $otherUser->image_border_color,
-                    'bio_color' => $otherUser->bio_color,
-                    'role_groups' => $otherUser->roleGroups->map(function ($roleGroup) {
-                        return [
-                            'id' => $roleGroup->id,
-                            'name' => $roleGroup->name,
-                            'banner' => $roleGroup->banner,
-                            'priority' => $roleGroup->priority,
-                            'permissions' => $roleGroup->permissions,
-                        ];
-                    })->toArray(),
-                    'role_group_banner' => $otherUser->role_group_banner,
-                    'all_permissions' => $otherUser->all_permissions,
-                    'private_messages_enabled' => $otherUser->private_messages_enabled ?? true,
-                ],
-                'last_message' => $lastMessage ? [
-                    'id' => $lastMessage->id,
-                    'content' => $lastMessage->content,
-                    'sender_id' => $lastMessage->sender_id,
-                    'created_at' => $lastMessage->created_at->toISOString(),
-                    'read_at' => $lastMessage->read_at?->toISOString(),
-                ] : null,
-                'unread_count' => (int) $conversation->unread_count,
-                'message_count' => (int) $conversation->message_count,
-                'last_message_at' => $conversation->last_message_at,
-            ];
-        })->filter()->values();
+                // Get the last message
+                $lastMessage = PrivateMessage::where(function ($query) use ($user, $otherUser) {
+                    $query->where(function ($q) use ($user, $otherUser) {
+                        $q->where('sender_id', $user->id)
+                          ->where('recipient_id', $otherUser->id);
+                    })->orWhere(function ($q) use ($user, $otherUser) {
+                        $q->where('sender_id', $otherUser->id)
+                          ->where('recipient_id', $user->id);
+                    });
+                })
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+                return [
+                    'user' => [
+                        'id' => $otherUser->id,
+                        'name' => $otherUser->name,
+                        'username' => $otherUser->username,
+                        'avatar_url' => $otherUser->avatar_url,
+                        'country_code' => $otherUser->country_code,
+                        'name_color' => $otherUser->name_color,
+                        'message_color' => $otherUser->message_color,
+                        'name_bg_color' => $otherUser->name_bg_color,
+                        'image_border_color' => $otherUser->image_border_color,
+                        'bio_color' => $otherUser->bio_color,
+                        'role_groups' => $otherUser->roleGroups->map(function ($roleGroup) {
+                            return [
+                                'id' => $roleGroup->id,
+                                'name' => $roleGroup->name,
+                                'banner' => $roleGroup->banner,
+                                'priority' => $roleGroup->priority,
+                                'permissions' => $roleGroup->permissions,
+                            ];
+                        })->toArray(),
+                        'role_group_banner' => $otherUser->role_group_banner,
+                        'all_permissions' => $otherUser->all_permissions,
+                        'private_messages_enabled' => $otherUser->private_messages_enabled ?? true,
+                    ],
+                    'last_message' => $lastMessage ? [
+                        'id' => $lastMessage->id,
+                        'content' => $lastMessage->content,
+                        'sender_id' => $lastMessage->sender_id,
+                        'created_at' => $lastMessage->created_at->toISOString(),
+                        'read_at' => $lastMessage->read_at?->toISOString(),
+                    ] : null,
+                    'unread_count' => (int) $conversation->unread_count,
+                    'message_count' => (int) $conversation->message_count,
+                    'last_message_at' => $conversation->last_message_at,
+                ];
+            })->filter()->values()->toArray();
+        });
 
         return response()->json($conversationsData);
+    }
+    
+    /**
+     * Clear conversations cache for users involved in a message.
+     */
+    private function clearConversationsCache(int $senderId, int $recipientId): void
+    {
+        Cache::forget("private_conversations_user_{$senderId}");
+        Cache::forget("private_conversations_user_{$recipientId}");
     }
 
     /**
@@ -230,6 +255,12 @@ class PrivateMessageController extends Controller
 
         $message->load(['sender.media', 'sender.roleGroups', 'recipient.media', 'recipient.roleGroups']);
 
+        // Clear conversations cache for both users
+        $this->clearConversationsCache($user->id, $recipient->id);
+        
+        // Clear unread count cache
+        Cache::forget("private_unread_count_user_{$recipient->id}");
+
         // Broadcast the message
         try {
             broadcast(new PrivateMessageSent($message))->toOthers();
@@ -262,6 +293,10 @@ class PrivateMessageController extends Controller
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
 
+        // Clear conversations cache and unread count cache
+        $this->clearConversationsCache($user->id, $userId);
+        Cache::forget("private_unread_count_user_{$user->id}");
+
         return response()->json([
             'message' => 'Messages marked as read',
             'updated_count' => $updated
@@ -274,10 +309,16 @@ class PrivateMessageController extends Controller
     public function unreadCount(Request $request): JsonResponse
     {
         $user = $request->user();
-
-        $count = PrivateMessage::where('recipient_id', $user->id)
-            ->whereNull('read_at')
-            ->count();
+        $userId = $user->id;
+        
+        // Cache unread count for 1 minute (changes frequently)
+        $cacheKey = "private_unread_count_user_{$userId}";
+        
+        $count = Cache::remember($cacheKey, 60, function () use ($userId) {
+            return PrivateMessage::where('recipient_id', $userId)
+                ->whereNull('read_at')
+                ->count();
+        });
 
         return response()->json(['count' => $count]);
     }

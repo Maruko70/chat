@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useAuthStore } from './authStore'
+import { useRateLimit } from '~/composables/useRateLimit'
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -14,14 +15,19 @@ export const useSettingsStore = defineStore('settings', {
     notificationsEnabled: true,
     // Flag to prevent auto-save when loading from user data
     isLoadingFromUser: false,
+    // Flag to prevent recursive calls from watchers
+    isUpdatingPrivateMessages: false,
+    isUpdatingNotifications: false,
   }),
 
   actions: {
     // Load settings from user object
     loadFromUser(user: any) {
       if (user) {
-        // Set flag to prevent watchers from triggering auto-save
+        // Set flags to prevent watchers from triggering auto-save
         this.isLoadingFromUser = true
+        this.isUpdatingPrivateMessages = true
+        this.isUpdatingNotifications = true
         
         this.roomFontSize = user.room_font_size || 14
         this.nameColor = user.name_color || { r: 69, g: 9, b: 36 }
@@ -31,15 +37,20 @@ export const useSettingsStore = defineStore('settings', {
         this.bioColor = user.bio_color || { r: 107, g: 114, b: 128 }
         // Load privacy settings from user object
         this.privateMessagesEnabled = user.private_messages_enabled !== undefined ? user.private_messages_enabled : true
+        this.notificationsEnabled = user.notifications_enabled !== undefined ? user.notifications_enabled : true
         
-        // Reset flag after a short delay to allow watchers to settle
+        // Reset flags after a short delay to allow watchers to settle
         // Use nextTick to ensure all reactive updates are complete
         if (import.meta.client) {
           setTimeout(() => {
             this.isLoadingFromUser = false
+            this.isUpdatingPrivateMessages = false
+            this.isUpdatingNotifications = false
           }, 100)
         } else {
           this.isLoadingFromUser = false
+          this.isUpdatingPrivateMessages = false
+          this.isUpdatingNotifications = false
         }
       }
     },
@@ -70,7 +81,30 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async setPrivateMessagesEnabled(enabled: boolean) {
+      // Prevent recursive calls
+      if (this.isUpdatingPrivateMessages) {
+        return
+      }
+      
+      // Check if value is already set (prevents unnecessary updates)
+      if (this.privateMessagesEnabled === enabled) {
+        return
+      }
+      
+      // Check rate limit BEFORE changing the value
+      const { checkRateLimit } = useRateLimit()
+      if (!checkRateLimit('toggle_private_messages')) {
+        // Don't change the value if rate limited - InputSwitch will revert via :modelValue binding
+        return
+      }
+      
+      // Store the old value in case we need to revert
+      const oldValue = this.privateMessagesEnabled
+      
+      // Set flag to prevent watcher from triggering
+      this.isUpdatingPrivateMessages = true
       this.privateMessagesEnabled = enabled
+      
       // Save to API immediately
       try {
         const { $api } = useNuxtApp()
@@ -91,11 +125,43 @@ export const useSettingsStore = defineStore('settings', {
         }
       } catch (error) {
         console.error('Error saving private messages setting:', error)
+        // Revert the value on error
+        this.privateMessagesEnabled = oldValue
+      } finally {
+        // Reset flag after a short delay to allow watchers to settle
+        setTimeout(() => {
+          this.isUpdatingPrivateMessages = false
+        }, 100)
       }
     },
 
-    setNotificationsEnabled(enabled: boolean) {
+    async setNotificationsEnabled(enabled: boolean) {
+      // Prevent recursive calls
+      if (this.isUpdatingNotifications) {
+        return
+      }
+      
+      // Check if value is already set (prevents unnecessary updates)
+      if (this.notificationsEnabled === enabled) {
+        return
+      }
+      
+      // Check rate limit BEFORE changing the value
+      const { checkRateLimit } = useRateLimit()
+      if (!checkRateLimit('toggle_notifications')) {
+        // Don't change the value if rate limited
+        return
+      }
+      
+      // Set flag to prevent watcher from triggering
+      this.isUpdatingNotifications = true
       this.notificationsEnabled = enabled
+      
+      // Reset flag after a short delay to allow watchers to settle
+      setTimeout(() => {
+        this.isUpdatingNotifications = false
+      }, 100)
+      
       // This might not need API save, depending on requirements
     },
 

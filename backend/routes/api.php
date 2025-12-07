@@ -167,6 +167,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Banned users
         Route::get('/users', [BanController::class, 'getBannedUsers']);
         Route::post('/users', [BanController::class, 'banUser']);
+        Route::post('/users/rate-limit', [BanController::class, 'banUserRateLimit']);
         Route::delete('/users/{id}', [BanController::class, 'unbanUser']);
         
         // Check ban status

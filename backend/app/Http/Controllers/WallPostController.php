@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class WallPostController extends Controller
 {
@@ -37,19 +38,47 @@ class WallPostController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $wallPosts = WallPost::where('room_id', $roomId)
-            ->with(['user.media', 'user.roleGroups', 'likes.user', 'comments.user.media'])
-            ->withCount('likes')
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
-
-        // Add is_liked flag for each post
-        $wallPosts->getCollection()->transform(function ($post) use ($request) {
-            $post->is_liked = $post->isLikedBy($request->user()->id);
-            return $post;
+        $userId = $request->user()->id;
+        $page = $request->get('page', 1);
+        
+        // Get cache version for this room (increments when cache needs invalidation)
+        $cacheVersion = Cache::get("wall_posts_cache_version_room_{$roomId}", 1);
+        
+        // Cache key includes room ID, user ID (for is_liked), page number, and version
+        $cacheKey = "wall_posts_room_{$roomId}_user_{$userId}_page_{$page}_v{$cacheVersion}";
+        
+        // Cache for 5 minutes (wall posts change less frequently than messages)
+        $wallPosts = Cache::remember($cacheKey, 300, function () use ($roomId, $userId) {
+            $posts = WallPost::where('room_id', $roomId)
+                ->with(['user.media', 'user.roleGroups', 'likes.user', 'comments.user.media'])
+                ->withCount('likes')
+                ->orderBy('created_at', 'desc')
+                ->paginate(20);
+            
+            // Add is_liked flag for each post
+            $posts->getCollection()->transform(function ($post) use ($userId) {
+                $post->is_liked = $post->isLikedBy($userId);
+                return $post;
+            });
+            
+            return $posts;
         });
 
         return response()->json($wallPosts);
+    }
+    
+    /**
+     * Clear wall posts cache for a room by incrementing version number.
+     * This invalidates all cached pages for all users efficiently.
+     */
+    private function clearWallPostsCache(string $roomId): void
+    {
+        // Increment cache version to invalidate all cached pages
+        $currentVersion = Cache::get("wall_posts_cache_version_room_{$roomId}", 1);
+        Cache::forever("wall_posts_cache_version_room_{$roomId}", $currentVersion + 1);
+        
+        // Also clear wall creator cache
+        Cache::forget("wall_creator_room_{$roomId}");
     }
 
     /**
@@ -136,6 +165,9 @@ class WallPostController extends Controller
         $wallPost->is_liked = false;
         $wallPost->likes_count = 0;
 
+        // Clear wall posts cache for this room
+        $this->clearWallPostsCache($roomId);
+
         // Broadcast the wall post immediately
         try {
             broadcast(new WallPostSent($wallPost))->toOthers();
@@ -188,6 +220,9 @@ class WallPostController extends Controller
 
         $wallPost->delete();
 
+        // Clear wall posts cache for this room
+        $this->clearWallPostsCache($roomId);
+
         return response()->json(['message' => 'Wall post deleted successfully']);
     }
 
@@ -224,6 +259,9 @@ class WallPostController extends Controller
         }
 
         $likesCount = $wallPost->likes()->count();
+
+        // Clear wall posts cache for this room (likes affect the display)
+        $this->clearWallPostsCache($roomId);
 
         return response()->json([
             'liked' => $liked,
@@ -311,6 +349,9 @@ class WallPostController extends Controller
 
         $comment->load(['user.media', 'user.roleGroups']);
 
+        // Clear wall posts cache (comments are included in the response)
+        $this->clearWallPostsCache($roomId);
+
         return response()->json($comment, 201);
     }
 
@@ -341,6 +382,9 @@ class WallPostController extends Controller
 
         $comment->delete();
 
+        // Clear wall posts cache (comments are included in the response)
+        $this->clearWallPostsCache($roomId);
+
         return response()->json(['message' => 'Comment deleted successfully']);
     }
 
@@ -360,40 +404,49 @@ class WallPostController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Get top 3 creators
-        $topCreators = User::select('users.*', DB::raw('COUNT(wall_post_likes.id) as total_likes'))
-            ->join('wall_posts', 'users.id', '=', 'wall_posts.user_id')
-            ->join('wall_post_likes', 'wall_posts.id', '=', 'wall_post_likes.wall_post_id')
-            ->where('wall_posts.room_id', $roomId)
-            ->groupBy('users.id')
-            ->orderByRaw('COUNT(wall_post_likes.id) DESC')
-            ->limit(3)
-            ->get();
-
-        if ($topCreators->isEmpty()) {
-            return response()->json([
-                'wall_creator' => null,
-                'top_creators' => []
-            ]);
-        }
-
-        // Load relationships and calculate total likes for each
-        $topCreators->each(function ($creator) use ($roomId) {
-            $creator->load('media', 'roleGroups');
-            $creator->total_likes = DB::table('wall_post_likes')
-                ->join('wall_posts', 'wall_post_likes.wall_post_id', '=', 'wall_posts.id')
+        // Cache key for wall creator
+        $cacheKey = "wall_creator_room_{$roomId}";
+        
+        // Cache for 5 minutes (wall creator changes less frequently)
+        $result = Cache::remember($cacheKey, 300, function () use ($roomId) {
+            // Get top 3 creators
+            $topCreators = User::select('users.*', DB::raw('COUNT(wall_post_likes.id) as total_likes'))
+                ->join('wall_posts', 'users.id', '=', 'wall_posts.user_id')
+                ->join('wall_post_likes', 'wall_posts.id', '=', 'wall_post_likes.wall_post_id')
                 ->where('wall_posts.room_id', $roomId)
-                ->where('wall_posts.user_id', $creator->id)
-                ->count();
+                ->groupBy('users.id')
+                ->orderByRaw('COUNT(wall_post_likes.id) DESC')
+                ->limit(3)
+                ->get();
+
+            if ($topCreators->isEmpty()) {
+                return [
+                    'wall_creator' => null,
+                    'total_likes' => 0,
+                    'top_creators' => []
+                ];
+            }
+
+            // Load relationships and calculate total likes for each
+            $topCreators->each(function ($creator) use ($roomId) {
+                $creator->load('media', 'roleGroups');
+                $creator->total_likes = DB::table('wall_post_likes')
+                    ->join('wall_posts', 'wall_post_likes.wall_post_id', '=', 'wall_posts.id')
+                    ->where('wall_posts.room_id', $roomId)
+                    ->where('wall_posts.user_id', $creator->id)
+                    ->count();
+            });
+
+            // For backward compatibility, return the first creator as wall_creator
+            $wallCreator = $topCreators->first();
+
+            return [
+                'wall_creator' => $wallCreator,
+                'total_likes' => $wallCreator->total_likes,
+                'top_creators' => $topCreators->values()->all(),
+            ];
         });
 
-        // For backward compatibility, return the first creator as wall_creator
-        $wallCreator = $topCreators->first();
-
-        return response()->json([
-            'wall_creator' => $wallCreator,
-            'total_likes' => $wallCreator->total_likes,
-            'top_creators' => $topCreators->values()->all(),
-        ]);
+        return response()->json($result);
     }
 }

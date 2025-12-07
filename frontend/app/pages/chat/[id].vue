@@ -167,7 +167,6 @@
                       :title="getRoleGroupName(message.user)"
                     />
                     {{ message.user?.name || message.user?.username }}
-                    <span v-if="message.user?.is_guest" class="text-xs text-gray-400">(زائر)</span>
                     <!-- Gift Icon -->
                     <i v-if="message.user?.gifts && message.user.gifts.length > 0" 
                        class="pi pi-gift text-xs ml-1" 
@@ -267,9 +266,23 @@
                 </div>
               </div>
 
-              <!-- Date (at the end) -->
-              <div class="flex-shrink-0 mx-2 text-xs text-gray-400 whitespace-nowrap">
-                {{ timeSinceArabic(message.created_at) }}
+              <!-- Date and Status (at the end) -->
+              <div class="flex-shrink-0 mx-2 flex items-center gap-1">
+                <div class="text-xs text-gray-400 whitespace-nowrap">
+                  {{ timeSinceArabic(message.created_at) }}
+                </div>
+                <!-- Error indicator for failed messages -->
+                <div v-if="message.send_failed" 
+                  class="flex items-center gap-1 text-red-500" 
+                  v-tooltip.top="message.error_message || 'فشل إرسال الرسالة'">
+                  <i class="pi pi-exclamation-circle text-xs"></i>
+                  <span class="text-xs">فشل الإرسال</span>
+                </div>
+                <!-- Optimistic message indicator (sending) -->
+                <div v-else-if="message.is_optimistic && !message.send_failed" 
+                  class="flex items-center gap-1 text-gray-400">
+                  <i class="pi pi-spin pi-spinner text-xs"></i>
+                </div>
               </div>
               </div>
             </template>
@@ -309,18 +322,13 @@
               type="button" 
               text 
               rounded 
-              :class="[
-                'flex-shrink-0',
-                chatStore.connected 
-                  ? '!text-green-600 hover:!bg-green-50' 
-                  : '!text-orange-600 hover:!bg-orange-50'
-              ]"
-              @click="toggleSocketConnection" 
-              v-tooltip.top="chatStore.connected ? 'قطع الاتصال' : 'اتصال'" 
+              class="flex-shrink-0 !text-red-600 hover:!bg-red-50"
+              @click="leaveRoom" 
+              v-tooltip.top="'مغادرة الغرفة'" 
             >
               <template #icon>
                 <Icon 
-                  :name="chatStore.connected ? 'solar:link-linear' : 'solar:link-broken-linear'" 
+                  name="solar:logout-2-linear" 
                   class="w-8 h-8"
                 />
               </template>
@@ -336,9 +344,9 @@
               >
             </Button>
             <InputText ref="messageInput" v-model="messageContent" placeholder="اكتب رسالتك هنا..."
-              class="flex-1 text-xs sm:text-sm" size="small" :disabled="sending || showPasswordDialog" />
-            <Button type="submit" text label="إرسال" :loading="sending" :disabled="!messageContent.trim() || showPasswordDialog"
-              class="flex-shrink-0 btn-styled !text-white hover:!text-white border-0 !p-2 sm:!p-2" :style="{ backgroundColor: 'var(--site-button-color, #450924)' }" v-tooltip.top="'إرسال'" />
+              class="w-full md:w-auto text-xs sm:text-sm" size="small" :disabled="sending || showPasswordDialog || !chatStore.currentRoom" />
+            <Button type="submit" text label="إرسال" :loading="sending" :disabled="!messageContent.trim() || showPasswordDialog || !chatStore.currentRoom"
+              class="flex-shrink-0 btn-styled !text-white hover:!text-white border-0 !p-2 sm:!p-2" :style="{ backgroundColor: 'var(--site-button-color, #450924)' }" v-tooltip.top="!chatStore.currentRoom ? 'يرجى الانضمام إلى غرفة أولاً' : 'إرسال'" />
           </form>
 
           <!-- Emoji Panel Popup -->
@@ -409,7 +417,7 @@
     </div>
 
     <!-- Users Sidebar (Subs Menu) -->
-    <Sidebar v-model:visible="showUsersSidebar" position="right" class="w-80">
+    <Sidebar v-model:visible="showUsersSidebar" position="right" class="!w-64 md:!w-96">
       <template #header>
         <div class="flex items-start justify-between w-full">
           <h2 class="text-lg font-bold">المتواجدين</h2>
@@ -589,13 +597,12 @@
     </Sidebar>
 
     <!-- Private Messages Sidebar -->
-    <Sidebar v-model:visible="showPrivateMessages" position="right" class="w-80">
+    <Sidebar v-model:visible="showPrivateMessages" position="right" class="!w-64 md:!w-96">
       <template #header>
         <div class="flex items-center justify-between w-full">
           <h2 class="text-lg font-bold">الرسائل الخاصة</h2>
           <div class="flex items-center gap-2">
             <Badge v-if="privateMessagesStore.unreadCount > 0" :value="privateMessagesStore.unreadCount" severity="danger" />
-            <Button icon="pi pi-times" text rounded @click="showPrivateMessages = false" />
           </div>
         </div>
       </template>
@@ -625,7 +632,7 @@
     </Sidebar>
 
     <!-- Rooms List Sidebar -->
-    <Sidebar v-model:visible="showRoomsList" position="right" class="w-80">
+    <Sidebar v-model:visible="showRoomsList" position="right" class="!w-64 md:!w-96">
       <template #header>
         <div class="flex items-center justify-between w-full">
           <h2 class="font-bold">غرف الدردشة ({{ filteredRoomsList.length }})</h2>
@@ -1485,7 +1492,7 @@
     </Dialog>
 
     <!-- Wall Sidebar -->
-    <Sidebar v-model:visible="showWall" position="right" class="w-96">
+    <Sidebar v-model:visible="showWall" position="right" class="!w-64 md:!w-96">
       <template #header>
         <h2 class="font-bold" :style="{ color: 'var(--site-primary-color, #450924)' }">الحائط</h2>
       </template>
@@ -1545,16 +1552,16 @@
 
         <!-- Emoji Panel for Wall Post -->
         <OverlayPanel ref="wallEmojiPanel" class="emoji-panel">
-          <div class="w-80 max-h-96 overflow-y-auto">
+          <div class="w-[90vw] sm:w-80 max-w-80 max-h-96 overflow-y-auto">
             <div v-if="emojiList.length === 0" class="p-4 text-center text-gray-500">
               <p class="text-sm">لا توجد إيموجي متاحة</p>
             </div>
-            <div v-else class="grid grid-cols-8 gap-2 p-2">
+            <div v-else class="grid grid-cols-6 sm:grid-cols-8 gap-2 p-2">
               <button 
                 v-for="emojiId in emojiList" 
                 :key="emojiId" 
                 @click="insertEmojiToWallPost(emojiId)"
-                class="w-10 h-10 p-1 hover:bg-gray-100 rounded transition flex items-center justify-center"
+                class="w-10 h-10 p-1 hover:bg-gray-100 rounded transition flex items-center justify-center touch-manipulation"
                 type="button"
               >
                 <img :src="getEmojiPath(emojiId)" :alt="`Emoji ${emojiId}`" class="w-full h-full object-contain" />
@@ -1604,7 +1611,7 @@
             </div>
 
             <!-- Image OR YouTube Video (only one) -->
-            <div v-if="post.image_url || post.youtube_video" class="pb-3">
+            <div v-if="post.image_url || post.youtube_video" class="py-1">
               <!-- YouTube Video -->
               <div 
                 v-if="post.youtube_video" 
@@ -1665,7 +1672,6 @@
                 size="small"
                 @click="deleteWallPost(post.id)"
               />
-              <div v-else></div>
               
               <div class="flex items-center gap-2">
                 <Button 
@@ -1694,16 +1700,16 @@
         <!-- Fixed Post Form at Bottom -->
         <div class="flex-shrink-0 border-t" :style="{ borderTopColor: 'var(--site-primary-color, #450924)' }">
           <!-- Preview Bubble (above input area) -->
-          <div v-if="selectedYouTubeVideo || wallPostImagePreview" class="p-3 border-b" 
+          <div v-if="selectedYouTubeVideo || wallPostImagePreview" class="p-2 sm:p-3 border-b" 
                :style="{ borderBottomColor: 'var(--site-primary-color, #450924)', backgroundColor: 'rgba(69, 9, 36, 0.05)' }">
             <!-- Selected YouTube Video -->
-            <div v-if="selectedYouTubeVideo" class="mb-2 p-2 rounded flex items-center justify-between bg-white"
+            <div v-if="selectedYouTubeVideo" class="mb-2 p-1.5 sm:p-2 rounded flex items-center justify-between gap-2 bg-white"
                  :style="{ borderColor: 'var(--site-primary-color, #450924)' }">
-              <div class="flex gap-2 flex-1 min-w-0">
-                <img :src="selectedYouTubeVideo.thumbnail" alt="" class="w-16 h-12 object-cover rounded" />
+              <div class="flex gap-1.5 sm:gap-2 flex-1 min-w-0">
+                <img :src="selectedYouTubeVideo.thumbnail" alt="" class="w-12 h-9 sm:w-16 sm:h-12 object-cover rounded flex-shrink-0" />
                 <div class="flex-1 min-w-0">
                   <div class="text-xs font-medium line-clamp-2">{{ selectedYouTubeVideo.title }}</div>
-                  <div class="text-xs text-gray-500 mt-1">{{ selectedYouTubeVideo.channelTitle || 'YouTube' }}</div>
+                  <div class="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1">{{ selectedYouTubeVideo.channelTitle || 'YouTube' }}</div>
                 </div>
               </div>
               <Button 
@@ -1712,35 +1718,37 @@
                 rounded 
                 size="small"
                 @click="selectedYouTubeVideo = null"
-                class="flex-shrink-0"
+                class="flex-shrink-0 !w-6 !h-6 sm:!w-8 sm:!h-8 !p-0"
               />
             </div>
 
             <!-- Selected Image Preview -->
             <div v-if="wallPostImagePreview" class="relative">
-              <img :src="wallPostImagePreview" alt="Preview" class="w-full h-32 object-cover rounded border" 
+              <img :src="wallPostImagePreview" alt="Preview" class="w-full h-24 sm:h-32 object-cover rounded border" 
                    :style="{ borderColor: 'var(--site-primary-color, #450924)' }" />
               <Button 
                 icon="pi pi-times" 
                 text 
                 rounded 
                 severity="danger"
-                class="absolute top-1 right-1 bg-white/90"
+                class="absolute top-1 right-1 bg-white/90 !w-6 !h-6 sm:!w-8 sm:!h-8 !p-0"
                 @click="wallPostImageFile = null; wallPostImagePreview = null"
               />
             </div>
           </div>
 
           <!-- Post Form -->
-          <div class="flex items-center justify-between p-2" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
-            <div class="flex items-center justify-between gap-1 w-full">
+          <div class="flex items-center justify-between p-1.5 sm:p-2" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
+            <div class="flex items-center gap-0.5 sm:gap-1 w-full min-w-0">
               <Button 
                 icon="pi pi-image" 
                 label="" 
                 text
                 size="small"
                 @click="wallPostImageInput?.click()"
+                class="flex-shrink-0 !w-7 !h-7 sm:!w-8 sm:!h-8 !p-0"
                 :style="{ color: 'var(--site-primary-color, #450924)' }"
+                v-tooltip.top="'إضافة صورة'"
               />
               <input 
                 ref="wallPostImageInput"
@@ -1749,18 +1757,31 @@
                 class="hidden" 
                 @change="handleWallPostImageSelect"
               />
-              <Button ref="emojiButton" type="button" rounded severity="secondary" class="flex-shrink-0 !p-0 w-8 h-8 sm:w-7 sm:h-7"
-                @click="wallEmojiPanel.toggle($event)">
+              <Button 
+                ref="emojiButton" 
+                type="button" 
+                rounded 
+                severity="secondary" 
+                class="flex-shrink-0 !p-0 !w-7 !h-7 sm:!w-8 sm:!h-8"
+                @click="wallEmojiPanel.toggle($event)"
+                v-tooltip.top="'لوحة الإيموجي'"
+              >
                 <img 
                   :src="emojiList.length > 0 ? getEmojiPath(emojiList[0]) : getEmojiPath(0)" 
                   width="16" 
                   height="16" 
-                  class="!p-0 md:w-6 md:h-6 sm:w-5 sm:h-5"
+                  class="!p-0 sm:w-5 sm:h-5"
                   alt="Emoji"
                 >
               </Button>
-              <InputText ref="messageInput" v-model="wallPost" placeholder="اكتب رسالتك هنا..."
-                class="flex-1 text-xs sm:text-sm" size="small" :disabled="postingToWall" />
+              <InputText 
+                ref="wallPostInput" 
+                v-model="wallPost" 
+                placeholder="اكتب رسالتك هنا..."
+                class="flex-1 min-w-0 text-xs sm:text-sm" 
+                size="small" 
+                :disabled="postingToWall" 
+              />
               <Button 
                 type="button"
                 @click="postToWall" 
@@ -1768,7 +1789,7 @@
                 label="إرسال" 
                 :loading="postingToWall" 
                 :disabled="(!wallPost.trim() && !wallPostImageFile && !selectedYouTubeVideo) || postingToWall"
-                class="flex-shrink-0 btn-styled !text-white hover:!text-white border-0 !p-2 sm:!p-2" 
+                class="flex-shrink-0 btn-styled !text-white hover:!text-white border-0 !p-1.5 sm:!p-2 !text-xs sm:!text-sm" 
                 :style="{ backgroundColor: 'var(--site-button-color, #450924)' }" 
                 v-tooltip.top="'إرسال'" 
               />
@@ -1998,7 +2019,7 @@
     </Dialog>
 
     <!-- Settings Sidebar -->
-    <Sidebar v-model:visible="showSettings" position="right" class="w-96">
+    <Sidebar v-model:visible="showSettings" position="right" class="!w-64 md:!w-96">
       <template #header>
         <div class="flex items-center justify-between w-full">
           <h2 class="text-lg font-bold">الإعدادات</h2>
@@ -2020,7 +2041,7 @@
           </Button>
         </div>
       </template>
-      <div class="space-y-6 max-h-[calc(100vh-100px)] overflow-y-auto">
+      <div class="space-y-6 px-4 max-h-[calc(95vh-100px)] overflow-y-auto">
         <!-- Profile Section -->
         <div>
           <h3 class="text-lg font-semibold mb-3">الملف الشخصي</h3>
@@ -2203,7 +2224,10 @@
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <label class="text-sm">تفعيل الرسائل الخاصة</label>
-              <InputSwitch v-model="settingsStore.privateMessagesEnabled" />
+              <InputSwitch 
+                :modelValue="settingsStore.privateMessagesEnabled" 
+                @update:modelValue="(value: boolean) => settingsStore.setPrivateMessagesEnabled(value)" 
+              />
             </div>
             <div v-if="hasPermission(authStore.user, 'incognito_mode')" class="flex items-center justify-between">
               <label class="text-sm">تفعيل وضع التخفي</label>
@@ -2211,7 +2235,10 @@
             </div>
             <div class="flex items-center justify-between">
               <label class="text-sm">تفعيل الإشعارات</label>
-              <InputSwitch v-model="settingsStore.notificationsEnabled" />
+              <InputSwitch 
+                :modelValue="settingsStore.notificationsEnabled" 
+                @update:modelValue="(value: boolean) => settingsStore.setNotificationsEnabled(value)" 
+              />
             </div>
           </div>
         </div>
@@ -2241,9 +2268,9 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex gap-2 pt-4 border-t">
+        <div class="flex gap-2 pb-6 border-t">
           <Button label="حفظ" icon="pi pi-check" @click="saveSettings" :loading="savingSettings" class="flex-1" />
-          <Button label="تسجيل الخروج" icon="pi pi-sign-out" severity="danger" @click="handleLogout" class="flex-1" />
+          <Button label="خروج" icon="pi pi-sign-out" severity="danger" @click="handleLogout" class="flex-1" />
         </div>
       </div>
     </Sidebar>
@@ -2370,7 +2397,6 @@
               @click="notifyUser"
             />
             <Button 
-              v-if="hasRole(20)"
               :label="`إعجاب (${selectedUser?.likes || 0})`" 
               icon="pi pi-heart" 
               size="small"
@@ -2756,24 +2782,33 @@
     <Dialog 
       v-model:visible="showPrivateMessageModal" 
       modal 
-      :style="{ width: '90vw', maxWidth: '750px', height: '80vh' }"
+      :style="{ 
+        width: '100vw', 
+        maxWidth: '750px', 
+        height: '50vh',
+        maxHeight: '50vh'
+      }"
       :closable="true"
-      class="p-fluid"
+      :pt="{
+        root: { class: 'private-message-dialog' },
+        content: { class: 'p-0 flex flex-col h-full' }
+      }"
+      class="p-fluid private-message-dialog-mobile"
       @hide="closePrivateMessageModal"
     >
       <template #header>
-        <div class="flex items-center justify-between w-full">
-          <div class="flex items-center gap-3">
+        <div class="flex items-center justify-between w-full px-2 sm:px-4">
+          <div class="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <Avatar 
               :image="privateMessagesStore.currentConversation?.avatar_url || getDefaultUserImage()" 
               shape="circle" 
-              class="w-10 h-10" 
+              class="w-8 h-8 sm:w-10 sm:h-10 flex-shrink-0" 
             />
-            <div>
-              <div class="font-bold text-lg">
+            <div class="min-w-0 flex-1">
+              <div class="font-bold text-sm sm:text-lg truncate">
                 {{ privateMessagesStore.currentConversation?.name || privateMessagesStore.currentConversation?.username }}
               </div>
-              <div v-if="privateMessagesStore.currentConversation?.bio" class="text-sm text-gray-500">
+              <div v-if="privateMessagesStore.currentConversation?.bio" class="text-xs sm:text-sm text-gray-500 truncate hidden sm:block">
                 {{ privateMessagesStore.currentConversation.bio }}
               </div>
             </div>
@@ -2781,21 +2816,21 @@
         </div>
       </template>
       
-      <div class="flex flex-col h-full" style="height: calc(80vh - 120px);">
+      <div class="flex flex-col flex-1 min-h-0 private-message-content">
         <!-- Messages Container -->
-        <div ref="privateMessagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 rounded-lg">
-          <div v-if="privateMessagesStore.currentConversationMessages.length === 0" class="text-center py-8 text-gray-500">
+        <div ref="privateMessagesContainer" class="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 sm:space-y-4 bg-gray-50">
+          <div v-if="privateMessagesStore.currentConversationMessages.length === 0" class="text-center py-8 text-gray-500 text-sm sm:text-base">
             لا توجد رسائل. ابدأ المحادثة الآن!
           </div>
           <div v-for="message in privateMessagesStore.currentConversationMessages" :key="message.id"
             class="flex"
             :class="message.sender_id === authStore.user?.id ? 'justify-end' : 'justify-start'">
-            <div class="max-w-[70%] flex gap-2" :class="message.sender_id === authStore.user?.id ? 'flex-row-reverse' : 'flex-row'">
+            <div class="max-w-[85%] sm:max-w-[70%] flex gap-1.5 sm:gap-2" :class="message.sender_id === authStore.user?.id ? 'flex-row-reverse' : 'flex-row'">
               <Avatar v-if="message.sender_id !== authStore.user?.id" 
                 :image="message.sender?.avatar_url || getDefaultUserImage()" 
                 shape="circle" 
-                class="w-8 h-8 flex-shrink-0" />
-              <div class="rounded-lg p-3 shadow-sm"
+                class="w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0" />
+              <div class="rounded-lg p-2 sm:p-3 shadow-sm"
                 :class="message.sender_id === authStore.user?.id 
                   ? 'bg-blue-500 text-white' 
                   : 'bg-white text-gray-900 border border-gray-200'">
@@ -2804,25 +2839,25 @@
                   v-if="message.meta?.image" 
                   :src="message.meta.image" 
                   :alt="message.meta.image_name || 'صورة'"
-                  class="max-w-full max-h-64 rounded mb-2"
+                  class="max-w-full max-h-48 sm:max-h-64 rounded mb-1 sm:mb-2"
                 />
                 <!-- Message content with emojis -->
-                <div class="text-sm whitespace-pre-wrap break-words">
+                <div class="text-xs sm:text-sm whitespace-pre-wrap break-words">
                   <template v-for="(part, index) in parseMessageWithEmojis(message.content)" :key="index">
                     <img v-if="part.type === 'emoji' && part.emojiId !== undefined" 
                       :src="getEmojiPath(part.emojiId)"
                       :alt="`:${part.emojiId}:`" 
-                      class="inline-block w-4 h-4 align-middle" />
+                      class="inline-block w-3 h-3 sm:w-4 sm:h-4 align-middle" />
                     <span v-else-if="part.type === 'text'" class="inline">
                       {{ part.text }}
                     </span>
                   </template>
                 </div>
-                <div class="text-xs mt-1 flex items-center gap-1"
+                <div class="text-[10px] sm:text-xs mt-1 flex items-center gap-1"
                   :class="message.sender_id === authStore.user?.id ? 'text-blue-100' : 'text-gray-500'">
                   {{ moment(message.created_at).format('HH:mm') }}
-                  <i v-if="message.sender_id === authStore.user?.id && message.read_at" class="pi pi-check-double"></i>
-                  <i v-else-if="message.sender_id === authStore.user?.id" class="pi pi-check"></i>
+                  <i v-if="message.sender_id === authStore.user?.id && message.read_at" class="pi pi-check-double text-[10px] sm:text-xs"></i>
+                  <i v-else-if="message.sender_id === authStore.user?.id" class="pi pi-check text-[10px] sm:text-xs"></i>
                 </div>
               </div>
             </div>
@@ -2830,22 +2865,22 @@
         </div>
         
         <!-- Message Input -->
-        <div class="border-t p-3 bg-white">
-          <div class="flex gap-2 items-center">
+        <div class="border-t p-2 sm:p-3 bg-white flex-shrink-0">
+          <div class="flex gap-1 sm:gap-2 items-center min-w-0">
             <Button 
               ref="privateEmojiButton" 
               type="button" 
               rounded 
               severity="secondary" 
-              class="flex-shrink-0 !p-0 w-8 h-8"
+              class="flex-shrink-0 !p-0 w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10"
               @click="privateEmojiPanel.toggle($event)" 
               v-tooltip.top="'لوحة الإيموجي'"
             >
               <img 
                 :src="emojiList.length > 0 ? getEmojiPath(emojiList[0]) : getEmojiPath(0)" 
-                width="20" 
-                height="20" 
-                class="!p-0"
+                width="18" 
+                height="18" 
+                class="!p-0 sm:w-5 sm:h-5"
                 alt="Emoji"
               >
             </Button>
@@ -2853,7 +2888,8 @@
               ref="privateMessageInput"
               v-model="privateMessageContent" 
               placeholder="اكتب رسالة..."
-              class="flex-1"
+              class="flex-1 min-w-0 text-sm sm:text-base"
+              size="small"
               @keyup.enter="sendPrivateMessage"
               :disabled="sendingPrivateMessage"
             />
@@ -2864,11 +2900,14 @@
               :auto="true"
               chooseLabel=""
               class="flex-shrink-0"
+              :pt="{
+                chooseButton: { class: '!w-8 !h-8 sm:!w-9 sm:!h-9 md:!w-10 md:!h-10 !p-0' }
+              }"
               @select="onPrivateMessageFileSelect"
               v-tooltip.top="'إرسال صورة'"
             >
               <template #chooseicon>
-                <i class="pi pi-image text-lg"></i>
+                <i class="pi pi-image text-sm sm:text-base md:text-lg"></i>
               </template>
             </FileUpload>
             <Button 
@@ -2876,19 +2915,20 @@
               @click="sendPrivateMessage"
               :loading="sendingPrivateMessage"
               :disabled="!privateMessageContent.trim() && !privateMessageImageFile"
+              class="flex-shrink-0 !w-8 !h-8 sm:!w-9 sm:!h-9 md:!w-10 md:!h-10 !p-0"
             />
           </div>
           
           <!-- Emoji Panel Popup -->
           <OverlayPanel ref="privateEmojiPanel" class="emoji-panel">
-            <div class="w-80 max-h-96 overflow-y-auto">
+            <div class="w-[90vw] sm:w-80 max-w-80 max-h-96 overflow-y-auto">
               <div v-if="emojiList.length === 0" class="p-4 text-center text-gray-500">
                 <p class="text-sm">لا توجد إيموجي متاحة</p>
                 <p class="text-xs mt-2">يرجى إضافة إيموجي من لوحة التحكم</p>
               </div>
-              <div v-else class="grid grid-cols-8 gap-2 p-2">
+              <div v-else class="grid grid-cols-6 sm:grid-cols-8 gap-2 p-2">
                 <button v-for="emojiId in emojiList" :key="emojiId" @click="insertPrivateEmoji(emojiId)"
-                  class="w-10 h-10 p-1 hover:bg-gray-100 rounded transition flex items-center justify-center"
+                  class="w-10 h-10 sm:w-10 sm:h-10 p-1 hover:bg-gray-100 rounded transition flex items-center justify-center touch-manipulation"
                   type="button">
                   <img :src="getEmojiPath(emojiId)" :alt="`Emoji ${emojiId}`" class="w-full h-full object-contain" />
                 </button>
@@ -4098,58 +4138,86 @@ const handleUserClick = (user: User | undefined, message: Message) => {
 
 // Open user profile modal
 const openUserProfile = async (user: User) => {
-  // Fetch full user data to ensure we have all fields including social media
-  let fullUserData: User = user
-  try {
-    const { $api } = useNuxtApp()
-    const fullUser = await ($api as any)(`/users/${user.id}`)
-    fullUserData = fullUser
-    selectedUser.value = fullUser
-  } catch (error) {
-    // Fallback to provided user data if fetch fails
-    console.warn('Failed to fetch full user data, using provided data:', error)
-    selectedUser.value = user
-  }
+  // Show modal immediately with provided user data (optimistic UI)
+  selectedUser.value = user
   
-  // Initialize admin form with user data
-  // Get the first (highest priority) role group
-  const primaryRoleGroup = (fullUserData.role_groups || [])[0]
+  // Initialize admin form with available user data immediately
+  const primaryRoleGroup = (user.role_groups || [])[0]
   let roleGroupId: number | null = null
   let roleGroupExpiration: Date | null = null
   
-  // Initialize expiration date from user's role group (if available in pivot)
   if (primaryRoleGroup) {
     roleGroupId = primaryRoleGroup.id
     const pivot = (primaryRoleGroup as any).pivot
     if (pivot && pivot.expires_at) {
       roleGroupExpiration = new Date(pivot.expires_at)
     } else {
-      roleGroupExpiration = null // Infinite/no expiration
+      roleGroupExpiration = null
     }
   }
   
   adminEditForm.value = {
-    name: fullUserData.name || fullUserData.username || '',
-    likes: (fullUserData as any).likes || 0,
-    points: (fullUserData as any).points || 0,
-    bio: fullUserData.bio || '',
+    name: user.name || user.username || '',
+    likes: (user as any).likes || 0,
+    points: (user as any).points || 0,
+    bio: user.bio || '',
     roleGroupId,
     roleGroupExpiration,
     roomId: null,
     roomPassword: ''
   }
   
-  // Fetch role groups if not already loaded
-  if (availableRoleGroups.value.length === 0) {
-    await fetchRoleGroups()
-  }
-  
-  // Fetch rooms if not already loaded (for admin room selector)
-  if (canManageUser.value && (!chatStore.displayRooms || chatStore.displayRooms.length === 0)) {
-    await chatStore.fetchRooms()
-  }
-  
+  // Show modal immediately
   showUserProfileModal.value = true
+  
+  // Load data in background (non-blocking)
+  ;(async () => {
+    try {
+      // Fetch full user data in background
+      const { $api } = useNuxtApp()
+      const fullUser = await ($api as any)(`/users/${user.id}`)
+      
+      // Update with full data
+      selectedUser.value = fullUser
+      
+      // Update admin form with full data
+      const updatedPrimaryRoleGroup = (fullUser.role_groups || [])[0]
+      let updatedRoleGroupId: number | null = null
+      let updatedRoleGroupExpiration: Date | null = null
+      
+      if (updatedPrimaryRoleGroup) {
+        updatedRoleGroupId = updatedPrimaryRoleGroup.id
+        const pivot = (updatedPrimaryRoleGroup as any).pivot
+        if (pivot && pivot.expires_at) {
+          updatedRoleGroupExpiration = new Date(pivot.expires_at)
+        }
+      }
+      
+      adminEditForm.value = {
+        name: fullUser.name || fullUser.username || '',
+        likes: (fullUser as any).likes || 0,
+        points: (fullUser as any).points || 0,
+        bio: fullUser.bio || '',
+        roleGroupId: updatedRoleGroupId,
+        roleGroupExpiration: updatedRoleGroupExpiration,
+        roomId: null,
+        roomPassword: ''
+      }
+    } catch (error) {
+      console.warn('Failed to fetch full user data:', error)
+      // Keep using provided data
+    }
+  })()
+  
+  // Fetch role groups in background if needed
+  if (availableRoleGroups.value.length === 0) {
+    fetchRoleGroups().catch(err => console.warn('Failed to fetch role groups:', err))
+  }
+  
+  // Fetch rooms in background if needed
+  if (canManageUser.value && (!chatStore.displayRooms || chatStore.displayRooms.length === 0)) {
+    chatStore.fetchRooms().catch(err => console.warn('Failed to fetch rooms:', err))
+  }
 }
 
 // Close user profile modal
@@ -4219,6 +4287,13 @@ const notifyUser = async () => {
 
 const likeUser = async () => {
   if (!selectedUser.value) return
+  
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('like_user')) {
+    return
+  }
+  
   try {
     const { $api } = useNuxtApp()
     await $api(`/users/${selectedUser.value.id}/like`, { method: 'POST' })
@@ -5467,17 +5542,26 @@ const onPrivateMessageFileSelect = (event: any) => {
   }
 }
 
-const setReplyTo = (message: Message) => {
-  replyingTo.value = message
-  // Focus on input
+const focusMessageInput = () => {
   nextTick(() => {
-    if (messageInput.value && messageInput.value.$el) {
-      const input = messageInput.value.$el.querySelector('input') || messageInput.value.$el
-      if (input) {
-        input.focus()
+    if (messageInput.value) {
+      // PrimeVue InputText component
+      if (messageInput.value.$el) {
+        const input = messageInput.value.$el.querySelector('input') || messageInput.value.$el
+        if (input && input.focus) {
+          input.focus()
+        }
+      } else if (messageInput.value.focus) {
+        // Direct focus method if available
+        messageInput.value.focus()
       }
     }
   })
+}
+
+const setReplyTo = (message: Message) => {
+  replyingTo.value = message
+  focusMessageInput()
 }
 
 const cancelReply = () => {
@@ -5495,6 +5579,23 @@ const getReplyUserName = (replyTo: { user_id: number; user?: User }) => {
 
 const sendMessage = async () => {
   if (!messageContent.value.trim() || sending.value) return
+  
+  // Don't send if not in a room
+  if (!chatStore.currentRoom || !roomId.value) {
+    toast.add({
+      severity: 'warn',
+      summary: 'غير متاح',
+      detail: 'يرجى الانضمام إلى غرفة أولاً',
+      life: 3000,
+    })
+    return
+  }
+
+  // Check message-specific rate limit (allows bursts)
+  const { checkMessageRateLimit } = useRateLimit()
+  if (!checkMessageRateLimit()) {
+    return
+  }
 
   // Don't send messages if password dialog is open - wait for password validation first
   if (showPasswordDialog.value) {
@@ -5533,57 +5634,113 @@ const sendMessage = async () => {
   
   // Clear reply
   const wasReplying = !!replyingTo.value
+  const replyData = replyingTo.value ? { ...replyingTo.value } : null
   replyingTo.value = null
   
-  sending.value = true
+  // Create temporary message ID for optimistic update
+  const tempMessageId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  let tempMessage: any = null
 
-  try {
-    // Mark current user as active when sending a message
-    if (authStore.user?.id) {
-      markUserActiveOnSocket(authStore.user.id)
+  // Mark current user as active when sending a message
+  if (authStore.user?.id) {
+    markUserActiveOnSocket(authStore.user.id)
+  }
+
+  // Create optimistic message and add it immediately
+  if (authStore.user) {
+    tempMessage = {
+      id: tempMessageId,
+      room_id: Number(roomId.value),
+      user_id: authStore.user.id,
+      user: {
+        id: authStore.user.id,
+        name: authStore.user.name,
+        username: authStore.user.username,
+        avatar_url: authStore.user.avatar_url,
+        name_color: authStore.user.name_color,
+        message_color: authStore.user.message_color,
+        name_bg_color: authStore.user.name_bg_color,
+        image_border_color: authStore.user.image_border_color,
+        bio_color: authStore.user.bio_color,
+        role_groups: authStore.user.role_groups || [],
+      },
+      content: content,
+      meta: meta || {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_optimistic: true, // Flag to identify temporary messages
     }
-
-    // Send message to backend (will be stored in database)
-    const sentMessage = await chatStore.sendMessage(roomId.value, content, meta)
-
-    // Message will be added via Echo broadcast, but we can also add it optimistically
-    // if the backend returns the message immediately
-    if (sentMessage && sentMessage.id) {
-      // Ensure the message has the correct room_id
-      const messageWithRoom = {
-        ...sentMessage,
-        room_id: Number(roomId.value),
-      }
-      chatStore.addMessage(messageWithRoom)
-    }
-
+    
+    // Add message immediately for instant feedback
+    chatStore.addMessage(tempMessage)
     scrollToBottom()
-    
-    // Premium entry notification only shows when joining/moving rooms (with 3 second delay)
-  } catch (error: any) {
-    // Check if user is banned
-    if (error?.data?.banned || (error?.status === 403 && error?.data?.message?.includes('banned'))) {
-      // Ban is handled by useApi composable, just return
-      return
-    }
-    
-    // Restore message content and reply state on error
-    messageContent.value = content
-    if (wasReplying) {
-      // Try to restore reply if we can find the message
-      const replyId = replyingTo.value?.id
-      if (replyId) {
-        const originalMessage = chatStore.messages.find((m: Message) => m.id === replyId)
-        if (originalMessage) {
-          replyingTo.value = originalMessage
+  }
+
+  // Remove loading state immediately - don't wait for response
+  sending.value = false
+  focusMessageInput()
+
+  // Send message to backend (will be stored in database) - non-blocking
+  ;(async () => {
+    try {
+      const sentMessage = await chatStore.sendMessage(roomId.value, content, meta)
+
+      // Remove temporary message if it exists
+      if (tempMessage) {
+        const tempIndex = chatStore.messages.findIndex((m: Message) => m.id === tempMessageId)
+        if (tempIndex !== -1) {
+          chatStore.messages.splice(tempIndex, 1)
         }
       }
+
+      // Add the real message from backend
+      if (sentMessage && sentMessage.id) {
+        // Ensure the message has the correct room_id
+        const messageWithRoom = {
+          ...sentMessage,
+          room_id: Number(roomId.value),
+        }
+        chatStore.addMessage(messageWithRoom)
+        scrollToBottom()
+      }
+    } catch (error: any) {
+      // Check if user is banned
+      if (error?.data?.banned || (error?.status === 403 && error?.data?.message?.includes('banned'))) {
+        // Remove temporary message if it exists
+        if (tempMessage) {
+          const tempIndex = chatStore.messages.findIndex((m: Message) => m.id === tempMessageId)
+          if (tempIndex !== -1) {
+            chatStore.messages.splice(tempIndex, 1)
+          }
+        }
+        // Ban is handled by useApi composable, just return
+        return
+      }
+      
+      // Mark message as failed instead of removing it
+      if (tempMessage) {
+        const tempIndex = chatStore.messages.findIndex((m: Message) => m.id === tempMessageId)
+        if (tempIndex !== -1) {
+          // Update message to show error state
+          chatStore.messages[tempIndex] = {
+            ...chatStore.messages[tempIndex],
+            is_optimistic: true,
+            send_failed: true,
+            error_message: error?.data?.message || error?.message || 'فشل إرسال الرسالة',
+          }
+        }
+      }
+      
+      // Restore message content and reply state on error
+      messageContent.value = content
+      if (wasReplying && replyData) {
+        replyingTo.value = replyData
+      }
+      console.error('Error sending message:', error)
     }
-    console.error('Error sending message:', error)
-    // You could show a toast notification here
-  } finally {
-    sending.value = false
-  }
+  })()
+    
+    // Premium entry notification only shows when joining/moving rooms (with 3 second delay)
 }
 
 // Don't load messages from database - only show messages received via real-time during the session
@@ -5595,61 +5752,62 @@ const viewUserStory = (user: { id: number; name?: string; username?: string }) =
 }
 
 const openPrivateChat = async (user: { id: number; name?: string; username?: string; avatar_url?: string }) => {
-  try {
-    // Close user profile modal if open
-    if (showUserProfileModal.value) {
-      closeUserProfileModal()
-    }
-    
-    // Check if user has private messages enabled
-    const fullUser = chatStore.activeUsers.find((u: User) => u.id === user.id) || user as User
-    
-    if (!fullUser.private_messages_enabled && fullUser.id !== authStore.user?.id) {
-      toast.add({
-        severity: 'warn',
-        summary: 'غير متاح',
-        detail: 'هذا المستخدم قام بإيقاف الرسائل الخاصة',
-        life: 3000,
-      })
-      return
-    }
-    
-    // Check if current user has private messages enabled
-    if (!authStore.user?.private_messages_enabled) {
-      toast.add({
-        severity: 'warn',
-        summary: 'غير متاح',
-        detail: 'الرسائل الخاصة معطلة في حسابك',
-        life: 3000,
-      })
-      return
-    }
-    
-    // Set current conversation
-    privateMessagesStore.setCurrentConversation(fullUser)
-    
-    // Fetch messages
-    await privateMessagesStore.fetchMessages(user.id)
-    
-    // Mark as read
-    await privateMessagesStore.markAsRead(user.id)
-    
-    // Show private message modal
-    showPrivateMessageModal.value = true
-    
-    // Scroll to bottom
-    nextTick(() => {
-      scrollPrivateMessagesToBottom()
-    })
-  } catch (error: any) {
-    console.error('Error opening private chat:', error)
+  // Close user profile modal if open
+  if (showUserProfileModal.value) {
+    closeUserProfileModal()
+  }
+  
+  // Check if user has private messages enabled
+  const fullUser = chatStore.activeUsers.find((u: User) => u.id === user.id) || user as User
+  
+  if (!fullUser.private_messages_enabled && fullUser.id !== authStore.user?.id) {
     toast.add({
-      severity: 'error',
-      summary: 'خطأ',
-      detail: error?.message || 'فشل فتح المحادثة الخاصة',
+      severity: 'warn',
+      summary: 'غير متاح',
+      detail: 'هذا المستخدم قام بإيقاف الرسائل الخاصة',
       life: 3000,
     })
+    return
   }
+  
+  // Check if current user has private messages enabled
+  if (!authStore.user?.private_messages_enabled) {
+    toast.add({
+      severity: 'warn',
+      summary: 'غير متاح',
+      detail: 'الرسائل الخاصة معطلة في حسابك',
+      life: 3000,
+    })
+    return
+  }
+  
+  // Set current conversation and show modal immediately (optimistic UI)
+  privateMessagesStore.setCurrentConversation(fullUser)
+  showPrivateMessageModal.value = true
+  
+  // Load messages in background (non-blocking)
+  ;(async () => {
+    try {
+      // Fetch messages
+      await privateMessagesStore.fetchMessages(user.id)
+      
+      // Mark as read
+      await privateMessagesStore.markAsRead(user.id)
+      
+      // Scroll to bottom after messages load
+      nextTick(() => {
+        scrollPrivateMessagesToBottom()
+      })
+    } catch (error: any) {
+      console.error('Error loading private messages:', error)
+      toast.add({
+        severity: 'error',
+        summary: 'خطأ',
+        detail: error?.message || 'فشل تحميل الرسائل',
+        life: 3000,
+      })
+    }
+  })()
 }
 
 const closePrivateMessageModal = () => {
@@ -5668,6 +5826,12 @@ const scrollPrivateMessagesToBottom = () => {
 
 const sendPrivateMessage = async () => {
   if ((!privateMessageContent.value.trim() && !privateMessageImageFile.value) || sendingPrivateMessage.value || !privateMessagesStore.currentConversation) return
+
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('send_private_message')) {
+    return
+  }
 
   const content = privateMessageContent.value.trim()
   const imageFile = privateMessageImageFile.value
@@ -5805,6 +5969,12 @@ const fetchWallPosts = async () => {
 
 const postToWall = async () => {
   if ((!wallPost.value.trim() && !wallPostImageFile.value && !selectedYouTubeVideo.value) || !roomId.value) return
+  
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('post_to_wall')) {
+    return
+  }
   
   postingToWall.value = true
   try {
@@ -6070,6 +6240,12 @@ watch(showWallCreatorsModal, (isOpen) => {
 const toggleWallPostLike = async (post: any) => {
   if (!roomId.value) return
   
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('like_post')) {
+    return
+  }
+  
   try {
     const { api } = useApi()
     const response = await api(`/chat/${roomId.value}/wall-posts/${post.id}/like`, {
@@ -6122,6 +6298,12 @@ const fetchComments = async (postId: number) => {
 
 const addComment = async () => {
   if (!newComment.value.trim() || !selectedWallPost.value || !roomId.value) return
+  
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('comment_post')) {
+    return
+  }
   
   postingComment.value = true
   try {
@@ -7036,6 +7218,12 @@ const deleteProfilePicture = async () => {
 const saveSettings = async () => {
   if (savingSettings.value) return // Prevent double submission
   
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('save_settings')) {
+    return
+  }
+  
   savingSettings.value = true
   try {
     // Save profile changes (name, bio) and color settings together in one API call
@@ -7140,6 +7328,12 @@ const handleLogout = async () => {
 }
 
 const toggleSocketConnection = async () => {
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('toggle_socket')) {
+    return
+  }
+  
   const echo = getEcho()
   
   if (chatStore.connected) {
@@ -7469,11 +7663,101 @@ const toggleSocketConnection = async () => {
   }
 }
 
+const leaveRoom = async () => {
+  if (!roomId.value || !authStore.user?.id) return
+  
+  try {
+    const echo = getEcho()
+    
+    // Leave the room channel (but keep other channels like private messages)
+    if (currentChannel && echo) {
+      // Send "left" system message before leaving
+      if (authStore.user && roomId.value && currentChannel) {
+        const user = authStore.user
+        
+        const leftMessage = {
+          id: `system-left-${Date.now()}-${Math.random()}`,
+          room_id: Number(roomId.value),
+          user_id: user.id,
+          user: {
+            id: user.id,
+            name: user.name,
+            username: user.username,
+            avatar_url: user.avatar_url || getSystemMessagesImage(),
+            name_color: user.name_color || { r: 69, g: 9, b: 36 },
+            message_color: user.message_color || { r: 69, g: 9, b: 36 },
+            image_border_color: user.image_border_color || { r: 69, g: 9, b: 36 },
+            name_bg_color: user.name_bg_color || 'transparent',
+          },
+          content: '(هذا المستخدم غادر الغرفة)',
+          meta: {
+            is_system: true,
+            action: 'left',
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        
+        try {
+          // Send via whisper to ALL other users in the room
+          currentChannel.whisper('user.left', leftMessage)
+          await new Promise(resolve => setTimeout(resolve, 100))
+        } catch (error) {
+          console.error('Failed to send "left" message via socket:', error)
+        }
+      }
+      
+      // Leave the room channel
+      echo.leave(`room.${roomId.value}`)
+      currentChannel = null
+      isSubscribed = false
+    }
+    
+    // Remove user from room via API
+    const { $api } = useNuxtApp()
+    await ($api as any)(`/chat/${roomId.value}/users/${authStore.user.id}`, { method: 'DELETE' })
+    
+    // Clear current room from store (but keep user on page)
+    chatStore.setCurrentRoom(null)
+    
+    // Clear messages for this room
+    const roomMessages = chatStore.messages.filter((m: Message) => String(m.room_id) === String(roomId.value))
+    roomMessages.forEach((m: Message) => {
+      const index = chatStore.messages.findIndex((msg: Message) => msg.id === m.id)
+      if (index !== -1) {
+        chatStore.messages.splice(index, 1)
+      }
+    })
+    
+    // Show success message
+    toast.add({
+      severity: 'success',
+      summary: 'تم المغادرة',
+      detail: 'تم مغادرة الغرفة بنجاح. يمكنك الآن الوصول إلى الرسائل الخاصة وقائمة الغرف.',
+      life: 3000,
+    })
+  } catch (error: any) {
+    console.error('Error leaving room:', error)
+    toast.add({
+      severity: 'error',
+      summary: 'خطأ',
+      detail: error?.data?.message || error?.message || 'فشل مغادرة الغرفة',
+      life: 3000,
+    })
+  }
+}
+
 const navigateToRoom = async (id: number) => {
   showRoomsList.value = false
   
   // If already in this room, don't do anything
   if (String(roomId.value) === String(id)) {
+    return
+  }
+  
+  // Check rate limit
+  const { checkRateLimit } = useRateLimit()
+  if (!checkRateLimit('click_room')) {
     return
   }
   
@@ -7737,8 +8021,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
           image_border_color: user.image_border_color || { r: 69, g: 9, b: 36 },
           name_bg_color: user.name_bg_color || 'transparent',
         },
-        content: `${user.name || user.username} انضم إلى الغرفة`,
+        content: `هذا المستخدم انضم إلى`,
         meta: {
+          room_name: chatStore.currentRoom?.name || `الغرفة ${currentRoomId}`,
           is_system: true,
           action: 'joined',
         },
@@ -8595,6 +8880,9 @@ onMounted(async () => {
     
     // Fetch wall posts for the room
     await fetchWallPosts()
+    
+    // Focus on message input after room is loaded
+    focusMessageInput()
   } catch (error: any) {
 
     
@@ -9155,6 +9443,9 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
     isPasswordValidated.value = true
     // Fetch wall posts for the new room
     await fetchWallPosts()
+    
+    // Focus on message input after switching rooms
+    focusMessageInput()
   } catch (error: any) {
     
     // Check if room requires password
@@ -9263,6 +9554,12 @@ const incognitoModeEnabled = computed({
   set: async (value: boolean) => {
     if (!authStore.user?.id) return
     
+    // Check rate limit
+    const { checkRateLimit } = useRateLimit()
+    if (!checkRateLimit('toggle_incognito')) {
+      return
+    }
+    
     try {
       const { $api } = useNuxtApp()
       const updatedUser = await ($api as any)('/profile', {
@@ -9290,6 +9587,10 @@ const incognitoModeEnabled = computed({
 })
 
 watch(() => settingsStore.privateMessagesEnabled, (enabled) => {
+  // Skip if currently updating to prevent recursive calls
+  if (settingsStore.isUpdatingPrivateMessages) {
+    return
+  }
   settingsStore.setPrivateMessagesEnabled(enabled).then(() => {
     // Recalculate status after saving
     if (authStore.user) {
@@ -9300,6 +9601,10 @@ watch(() => settingsStore.privateMessagesEnabled, (enabled) => {
 })
 
 watch(() => settingsStore.notificationsEnabled, (enabled) => {
+  // Skip if currently updating to prevent recursive calls
+  if (settingsStore.isUpdatingNotifications) {
+    return
+  }
   settingsStore.setNotificationsEnabled(enabled)
 })
 </script>
@@ -9412,6 +9717,164 @@ watch(() => settingsStore.notificationsEnabled, (enabled) => {
   .btn-styled {
     font-size: 0.6875rem;
     padding: 0.375rem 0.75rem;
+  }
+}
+
+/* Private Message Dialog - Mobile Support */
+:deep(.private-message-dialog) {
+  margin: 0 !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  padding-top: 0 !important;
+}
+
+/* Target the dialog wrapper/mask on mobile */
+@media (max-width: 640px) {
+  :deep(.p-dialog-mask.private-message-dialog),
+  :deep(.private-message-dialog.p-dialog-mask) {
+    align-items: flex-start !important;
+    padding-top: 0 !important;
+    justify-content: center !important;
+  }
+  
+  :deep(.private-message-dialog) {
+    align-items: flex-start !important;
+    padding-top: 0 !important;
+  }
+  
+  /* Target the wrapper that contains the dialog */
+  :deep(.p-dialog-mask) {
+    align-items: flex-start !important;
+  }
+}
+
+:deep(.private-message-dialog .p-dialog) {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 50vh !important;
+  max-height: 50vh !important;
+  margin: 0 !important;
+  margin-top: 0 !important;
+  top: 0 !important;
+  transform: none !important;
+  border-radius: 0 !important;
+  border-bottom-left-radius: 0.5rem !important;
+  border-bottom-right-radius: 0.5rem !important;
+  position: fixed !important;
+}
+
+/* Ensure on mobile it's at the top */
+@media (max-width: 640px) {
+  :deep(.private-message-dialog .p-dialog) {
+    top: 0 !important;
+    margin-top: 0 !important;
+    transform: none !important;
+    position: fixed !important;
+  }
+}
+
+:deep(.private-message-dialog .p-dialog-content) {
+  padding: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+:deep(.private-message-dialog .p-dialog-header) {
+  padding: 0.75rem 1rem !important;
+  flex-shrink: 0 !important;
+  border-bottom: 1px solid #e5e7eb !important;
+}
+
+@media (min-width: 641px) {
+  :deep(.private-message-dialog .p-dialog) {
+    width: 90vw !important;
+    max-width: 750px !important;
+    height: 50vh !important;
+    max-height: 50vh !important;
+    margin: 0 !important;
+    margin-top: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    border-radius: 0 !important;
+    border-bottom-left-radius: 0.5rem !important;
+    border-bottom-right-radius: 0.5rem !important;
+  }
+  
+  :deep(.private-message-dialog .p-dialog-content) {
+    height: calc(50vh - 60px) !important;
+  }
+}
+
+/* Touch-friendly buttons on mobile */
+@media (max-width: 640px) {
+  :deep(.private-message-dialog .p-button) {
+    min-width: 32px !important;
+    min-height: 32px !important;
+  }
+  
+  :deep(.private-message-dialog .p-inputtext) {
+    font-size: 16px !important; /* Prevents zoom on iOS */
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  
+  /* Ensure input area fits */
+  :deep(.private-message-dialog .p-inputtext input) {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+}
+
+/* Ensure input container fits properly */
+:deep(.private-message-dialog .p-inputtext) {
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+}
+
+/* Ensure buttons don't shrink */
+:deep(.private-message-dialog .p-button),
+:deep(.private-message-dialog .p-fileupload-choose) {
+  flex-shrink: 0 !important;
+}
+
+/* Smooth scrolling for messages */
+.private-message-dialog :deep([ref="privateMessagesContainer"]) {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Content area height calculation */
+.private-message-content {
+  height: calc(50vh - 120px) !important;
+}
+
+@media (min-width: 641px) {
+  .private-message-content {
+    height: calc(50vh - 120px) !important;
+  }
+}
+
+/* Wall Post Input - Mobile Support */
+@media (max-width: 640px) {
+  /* Ensure input field fits properly */
+  :deep(.p-inputtext) {
+    min-width: 0 !important;
+  }
+  
+  /* Ensure buttons are touch-friendly */
+  :deep(.p-button) {
+    min-width: 28px !important;
+    min-height: 28px !important;
+  }
+  
+  /* Wall post input container - ensure proper flex behavior */
+  :deep(.p-inputtext input) {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 16px !important; /* Prevents zoom on iOS */
   }
 }
 </style>

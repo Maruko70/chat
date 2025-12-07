@@ -35,15 +35,32 @@ function getKeyBase(): string {
 }
 
 /**
+ * Base64 decode helper that works in both browser and Node.js
+ */
+function base64Decode(encoded: string): string {
+  // Try browser atob first
+  if (typeof atob !== 'undefined') {
+    return atob(encoded)
+  }
+  
+  // Fallback to Node.js Buffer (SSR)
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(encoded, 'base64').toString('binary')
+  }
+  
+  throw new Error('Base64 decoding not available: atob and Buffer are both undefined')
+}
+
+/**
  * Generate encryption key from salt (matching PHP hash('sha256'))
- * Using Web Crypto API for SHA-256 hashing
+ * Supports both browser (Web Crypto API) and Node.js SSR (crypto module)
  */
 async function generateKey(salt: string): Promise<string> {
   // Combine base key with salt
   const keyBase = getKeyBase()
   const combined = keyBase + salt
  
-  // Use Web Crypto API for SHA-256 (matches PHP's hash('sha256'))
+  // Try Web Crypto API first (browser environment)
   if (typeof crypto !== 'undefined' && crypto.subtle) {
     const encoder = new TextEncoder()
     const data = encoder.encode(combined)
@@ -58,7 +75,25 @@ async function generateKey(salt: string): Promise<string> {
     return key
   }
   
-  throw new Error('Web Crypto API not available')
+  // Fallback to Node.js crypto module (SSR environment)
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    try {
+      // Dynamic import for Node.js crypto module
+      const { createHash } = await import('node:crypto')
+      const hash = createHash('sha256')
+      hash.update(combined, 'utf8')
+      const hashHex = hash.digest('hex')
+      
+      // PHP's hash('sha256') returns 64 hex chars, we take first 32
+      const key = hashHex.substring(0, 32)
+      
+      return key
+    } catch (e) {
+      throw new Error(`Failed to use Node.js crypto module: ${(e as Error).message}`)
+    }
+  }
+  
+  throw new Error('Web Crypto API not available and Node.js crypto module not accessible')
 }
 
 /**
@@ -120,7 +155,7 @@ export async function deobfuscateResponse(obfuscated: string): Promise<any> {
     // Base64 decode - convert to Uint8Array for proper byte handling
     let encryptedBytes: Uint8Array
     try {
-      const binaryString = atob(encoded)
+      const binaryString = base64Decode(encoded)
       // Convert binary string to Uint8Array (byte array)
       // Each character in the binary string represents a byte (0-255)
       encryptedBytes = new Uint8Array(binaryString.length)

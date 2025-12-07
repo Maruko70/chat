@@ -1,6 +1,6 @@
 <template>
-  <div class="min-h-screen bg-primary flex justify-center">
-      <div class="w-full max-w-md min-h-screen flex flex-col" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
+  <div class="h-screen bg-primary flex justify-center overflow-hidden">
+      <div class="w-full max-w-md h-screen flex flex-col overflow-hidden" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
         <!-- Header -->
         <header class="border-b shadow-sm w-full" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
         <div class="py-1">
@@ -33,9 +33,9 @@
       </header>
 
       <!-- Main Content -->
-      <div class="w-full flex-1 flex flex-col">
+      <div class="w-full flex-1 flex flex-col min-h-0">
         <!-- Auth Tabs Section (Compact, under header) -->
-        <div class="">
+        <div class="flex-shrink-0">
           <Card class="shadow-md !rounded-none border-0">
             <template #content>
               <div class="custom-tabs">
@@ -78,12 +78,9 @@
                       <form @submit.prevent="handleGuestLogin" class="space-y-2">
                         <div class="flex gap-2">
                           <InputText v-model="guestForm.username" type="text" placeholder="اسم المستخدم"
-                            class="w-full text-xs " size="small" />
+                            class="flex-1 text-xs " size="small" />
                           <Button type="submit" label="دخول كزائر"  size="small" :loading="guestLoading"
-                            class="w-1/3 text-xs btn-styled border-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
-                        </div>
-                        <div v-if="guestError" class="text-red-600 text-xs">
-                          {{ guestError }}
+                            class="w-28 md:w-36 text-xs btn-styled border-0 flex-shrink-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
                         </div>
                       </form>
                     </div>
@@ -93,20 +90,17 @@
                       <form @submit.prevent="handleLogin" class="space-y-2">
                         <div class="flex gap-2">
                           <InputText v-model="loginForm.username" type="text" placeholder="اسم المستخدم"
-                            class="flex-1 text-xs " size="small" />
-                          <div class="relative flex-1">
+                            class="w-32 md:w-36 text-xs " size="small" />
+                          <div class="relative ">
                             <InputText v-model="loginForm.password" :type="showPassword ? 'text' : 'password'"
-                              placeholder="كلمة المرور" class="w-full pr-8 text-xs " size="small" />
+                              placeholder="كلمة المرور" class="w-32 md:w-36 pr-8 text-xs " size="small" />
                             <button type="button" @click="showPassword = !showPassword"
                               class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 text-xs">
                               <i :class="showPassword ? 'pi pi-eye-slash' : 'pi pi-eye'"></i>
                             </button>
                           </div>
                           <Button type="submit" label="دخول" size="small" :loading="loginLoading"
-                            class="text-xs px-4 btn-styled border-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
-                        </div>
-                        <div v-if="loginError" class="text-red-600 text-xs">
-                          {{ loginError }}
+                            class="w-28 text-xs btn-styled border-0 flex-shrink-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
                         </div>
                       </form>
                     </div>
@@ -116,14 +110,11 @@
                       <form @submit.prevent="handleRegister" class="space-y-2">
                         <div class="flex gap-2">
                           <InputText v-model="registerForm.username" type="text" placeholder="اسم المستخدم"
-                            class="flex-1 text-xs " size="small" />
+                            class="w-32 md:w-36 text-xs " size="small" />
                           <InputText v-model="registerForm.password" type="password" placeholder="كلمة المرور"
-                            class="flex-1 text-xs " size="small" />
+                            class="w-32 md:w-36 text-xs " size="small" />
                           <Button type="submit" label="تسجيل" size="small" :loading="registerLoading"
-                            class="text-xs px-4 btn-styled border-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
-                        </div>
-                        <div v-if="registerError" class="text-red-600 text-xs">
-                          {{ registerError }}
+                            class="w-28 text-xs btn-styled border-0 flex-shrink-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
                         </div>
                       </form>
                     </div>
@@ -137,7 +128,7 @@
         <!-- Active Users List -->
         <div class="flex-1 flex flex-col min-h-0">
           <!-- Status Bar -->
-          <div class="flex justify-between items-center mb-2 shadow-sm">
+          <div class="flex justify-between items-center shadow-sm flex-shrink-0">
             <div class="bg-primary text-white px-3 py-2 -xl -xl flex flex-1">
               <span class="text-sm font-medium">{{ onlineCount }} مستخدم</span>
               <i class="pi pi-users text-sm"></i>
@@ -159,59 +150,58 @@
           </div>
 
           <!-- Active Users List -->
-          <Card class="shadow-md border-0 flex-1 flex flex-col min-h-0" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
+          <Card class="shadow-md border-0 flex-1 flex flex-col min-h-0 overflow-hidden" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
             <template #content>
-              <div v-if="chatStore.loading" class="text-center py-8">
-                <p class="text-gray-600">جاري التحميل...</p>
-              </div>
+              <div class="flex flex-col h-full min-h-0">
+                <div v-if="chatStore.loading" class="text-center py-8 flex-shrink-0">
+                  <p class="text-gray-600">جاري التحميل...</p>
+                </div>
 
-              <div v-else-if="displayActiveUsers.length === 0" class="text-center py-8">
-                <p class="text-gray-600">لا يوجد مستخدمين متصلين حالياً</p>
-              </div>
+                <div v-else-if="displayActiveUsers.length === 0" class="text-center py-8 flex-shrink-0">
+                  <p class="text-gray-600">لا يوجد مستخدمين متصلين حالياً</p>
+                </div>
 
-              <div v-else class="flex-1 overflow-y-auto min-h-0">
-                <div v-for="user in displayActiveUsers" :key="user.id"
-                  class="flex items-start hover:bg-gray-100 transition border border-gray-200 hover:border-gray-300 hover:shadow-sm">
-                  <div>
-                    <img :src="user.avatar_url || getDefaultUserImage()" alt="Avatar" width="14" height="14" class="w-14 h-14">
-                  </div>
-                  <div class="flex-1 min-w-0 items-center justify-center">
-                    <div class="flex items-center justify-between">
-                      <div class="font-medium text-md mx-2 flex items-center gap-1" :style="{
-                        color: rgbToCss(user.name_color || { r: 69, g: 9, b: 36 }),
-                        backgroundColor: user.name_bg_color === null || user.name_bg_color === undefined || user.name_bg_color === 'transparent'
-                          ? 'transparent'
-                          : rgbToCss(user.name_bg_color)
-                      }">
-                        <!-- Role Group Banner -->
-                        <img
-                          v-if="getRoleGroupBanner(user)"
-                          :src="getRoleGroupBanner(user)"
-                          :alt="getRoleGroupName(user)"
-                          class="h-3 w-auto object-contain"
-                          :title="getRoleGroupName(user)"
-                        />
-                        {{ user.name || user.username }}
-                        <span v-if="user.is_guest" class="text-xs text-gray-400">(زائر)</span>
-                        <!-- Gift/Role Icon -->
-                        
-                        
-                      </div>
-                      <div class="flex items-center mx-2">
-                        <img
-                          v-if="user.country_code"
-                          :src="`/flags/${user.country_code.toLowerCase()}.png`"
-                          :alt="user.country_code"
-                          class="w-5 h-4 object-contain"
-                          @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
-                        />
-                      </div>
+                <div v-else class="flex-1 overflow-y-auto min-h-0" style="max-height: 100%;">
+                  <div v-for="user in displayActiveUsers" :key="user.id"
+                    class="flex items-start hover:bg-gray-100 transition border border-gray-200 hover:border-gray-300 hover:shadow-sm">
+                    <div>
+                      <img :src="user.avatar_url || getDefaultUserImage()" alt="Avatar" width="14" height="14" class="w-14 h-14">
                     </div>
-                    <div class="flex-1 min-w-0 flex items-center justify-center mx-2">
-                      <p class="text-sm inline"
-                        :style="{ color: rgbToCss(user.bio_color || { r: 107, g: 114, b: 128 }) }">
-                        {{ user.bio || '(عضو جديد)' }}
-                      </p>
+                    <div class="flex-1 min-w-0 items-center justify-center">
+                      <div class="flex items-center justify-between">
+                        <div class="font-medium text-md mx-2 flex items-center gap-1" :style="{
+                          color: rgbToCss(user.name_color || { r: 69, g: 9, b: 36 }),
+                          backgroundColor: user.name_bg_color === null || user.name_bg_color === undefined || user.name_bg_color === 'transparent'
+                            ? 'transparent'
+                            : rgbToCss(user.name_bg_color)
+                        }">
+                          <!-- Role Group Banner -->
+                          <img
+                            v-if="getRoleGroupBanner(user)"
+                            :src="getRoleGroupBanner(user)"
+                            :alt="getRoleGroupName(user)"
+                            class="h-3 w-auto object-contain"
+                            :title="getRoleGroupName(user)"
+                          />
+                          {{ user.name || user.username }}
+                        </div>
+                        <div class="flex items-center mx-2">
+                          <span class="text-xs text-gray-400">#{{ user.id }}</span>
+                          <img
+                            v-if="user.country_code"
+                            :src="`/flags/${user.country_code.toLowerCase()}.png`"
+                            :alt="user.country_code"
+                            class="w-5 h-4 object-contain"
+                            @error="(e: Event) => { const target = e.target as HTMLImageElement; if (target) target.style.display = 'none' }"
+                          />
+                        </div>
+                      </div>
+                      <div class="flex-1 min-w-0 flex items-center justify-center mx-2">
+                        <p class="text-sm inline"
+                          :style="{ color: rgbToCss(user.bio_color || { r: 107, g: 114, b: 128 }) }">
+                          {{ user.bio || '(عضو جديد)' }}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -222,12 +212,15 @@
       </div>
 
       <!-- Footer -->
-      <footer class="border-t w-full mt-auto" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
+      <footer class="border-t w-full flex-shrink-0" :style="{ backgroundColor: 'var(--site-secondary-color, #ffffff)' }">
         <div class="px-4 py-4 text-center text-sm text-gray-600">
           حقوق النشر © 2025 شات فورجي الخليج. جميع الحقوق محفوظة
         </div>
       </footer>
     </div>
+
+    <!-- Message Dialog -->
+    <MessageDialog />
   </div>
 </template>
 
@@ -240,6 +233,9 @@ const router = useRouter()
 const { getEcho, initEcho, disconnect } = useEcho()
 const { getDefaultUserImage, favicon, siteName } = useSiteSettings()
 const faviconError = ref(false)
+
+// Message dialog
+const { showMessage } = useMessageDialog()
 
 const activeTab = ref(0)
 
@@ -308,7 +304,6 @@ const loginForm = ref({
   password: '',
 })
 const loginLoading = ref(false)
-const loginError = ref('')
 
 // Register form
 const registerForm = ref({
@@ -316,14 +311,12 @@ const registerForm = ref({
   password: '',
 })
 const registerLoading = ref(false)
-const registerError = ref('')
 
 // Guest form
 const guestForm = ref({
   username: '',
 })
 const guestLoading = ref(false)
-const guestError = ref('')
 
 const showPassword = ref(false)
 
@@ -335,19 +328,26 @@ const onlineCount = computed(() => {
 
 const handleLogin = async () => {
   loginLoading.value = true
-  loginError.value = ''
 
   try {
     await authStore.login(loginForm.value.username, loginForm.value.password)
-    // Fetch general room and redirect to it
-    const generalRoom = await chatStore.fetchGeneralRoom()
-    if (generalRoom && generalRoom.id) {
-      await router.push(`/chat/${generalRoom.id}`)
-    } else {
-      await router.push('/chat')
-    }
+    
+    await nextTick()
+    
+    // Wait a bit for message to show before redirecting
+    setTimeout(async () => {
+      // Fetch general room and redirect to it
+      const generalRoom = await chatStore.fetchGeneralRoom()
+      if (generalRoom && generalRoom.id) {
+        await router.push(`/chat/${generalRoom.id}`)
+      } else {
+        await router.push('/chat')
+      }
+    }, 2000)
   } catch (err: any) {
-    loginError.value = err.message || 'فشل تسجيل الدخول. يرجى التحقق من بيانات الاعتماد.'
+    await nextTick()
+    const errorMessage = err?.data?.message || err?.message || 'فشل تسجيل الدخول. يرجى التحقق من بيانات الاعتماد.'
+    showMessage('error', 'خطأ في تسجيل الدخول', errorMessage)
   } finally {
     loginLoading.value = false
   }
@@ -355,22 +355,29 @@ const handleLogin = async () => {
 
 const handleRegister = async () => {
   registerLoading.value = true
-  registerError.value = ''
 
   try {
     await authStore.register(
       registerForm.value.username,
       registerForm.value.password
     )
-    // Fetch general room and redirect to it
-    const generalRoom = await chatStore.fetchGeneralRoom()
-    if (generalRoom && generalRoom.id) {
-      await router.push(`/chat/${generalRoom.id}`)
-    } else {
-      await router.push('/chat')
-    }
+    
+    await nextTick()
+    
+    // Wait a bit for message to show before redirecting
+    setTimeout(async () => {
+      // Fetch general room and redirect to it
+      const generalRoom = await chatStore.fetchGeneralRoom()
+      if (generalRoom && generalRoom.id) {
+        await router.push(`/chat/${generalRoom.id}`)
+      } else {
+        await router.push('/chat')
+      }
+    }, 2000)
   } catch (err: any) {
-    registerError.value = err.message || 'فشل التسجيل. يرجى المحاولة مرة أخرى.'
+    await nextTick()
+    const errorMessage = err?.data?.message || err?.message || 'فشل التسجيل. يرجى المحاولة مرة أخرى.'
+    showMessage('error', 'خطأ في التسجيل', errorMessage)
   } finally {
     registerLoading.value = false
   }
@@ -378,19 +385,26 @@ const handleRegister = async () => {
 
 const handleGuestLogin = async () => {
   guestLoading.value = true
-  guestError.value = ''
 
   try {
     await authStore.guestLogin(guestForm.value.username)
-    // Fetch general room and redirect to it
-    const generalRoom = await chatStore.fetchGeneralRoom()
-    if (generalRoom && generalRoom.id) {
-      await router.push(`/chat/${generalRoom.id}`)
-    } else {
-      await router.push('/chat')
-    }
+    
+    await nextTick()
+    
+    // Wait a bit for message to show before redirecting
+    setTimeout(async () => {
+      // Fetch general room and redirect to it
+      const generalRoom = await chatStore.fetchGeneralRoom()
+      if (generalRoom && generalRoom.id) {
+        await router.push(`/chat/${generalRoom.id}`)
+      } else {
+        await router.push('/chat')
+      }
+    }, 2000)
   } catch (err: any) {
-    guestError.value = err.message || 'فشل دخول الزوار. يرجى المحاولة مرة أخرى.'
+    await nextTick()
+    const errorMessage = err?.data?.message || err?.message || 'فشل دخول الزوار. يرجى المحاولة مرة أخرى.'
+    showMessage('error', 'خطأ في دخول الزوار', errorMessage)
   } finally {
     guestLoading.value = false
   }
@@ -757,13 +771,26 @@ watch(() => authStore.isAuthenticated, async (isAuth) => {
 :deep(.p-card) {
   border-radius: 0;
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 :deep(.p-card-body) {
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 :deep(.p-card-content) {
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 </style>

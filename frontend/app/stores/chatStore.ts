@@ -31,7 +31,9 @@ export const useChatStore = defineStore('chat', {
     
     displayActiveUsers: (state) => {
       // Always return actual activeUsers from API, even if empty
-      return state.activeUsers || []
+      // Limit to latest 50 users for home page display
+      const users = state.activeUsers || []
+      return users.slice(0, 50)
     },
   },
 
@@ -179,10 +181,33 @@ export const useChatStore = defineStore('chat', {
         return
       }
       
-      // Check if message already exists
-      const existingMessage = this.messages.find(m => m.id === message.id)
-      if (existingMessage) {
+      // Check if message already exists (by ID)
+      const existingMessageIndex = this.messages.findIndex(m => m.id === message.id)
+      if (existingMessageIndex !== -1) {
+        // If it's a temporary message being replaced by real one, replace it
+        const existingMessage = this.messages[existingMessageIndex]
+        if (existingMessage.is_optimistic && !message.is_optimistic) {
+          this.messages[existingMessageIndex] = message
+          return
+        }
+        // Otherwise, skip duplicate
         return
+      }
+      
+      // If this is a real message, check if there's a temporary message with same content/user/room to replace
+      if (!message.is_optimistic) {
+        // Find temporary message with matching content, user, and room
+        const tempMessageIndex = this.messages.findIndex((m: Message) => 
+          m.is_optimistic && 
+          m.user_id === message.user_id &&
+          m.content === message.content &&
+          String(m.room_id) === String(message.room_id)
+        )
+        if (tempMessageIndex !== -1) {
+          // Replace temporary message with real one
+          this.messages[tempMessageIndex] = message
+          return
+        }
       }
       
       const currentRoomId = this.currentRoom?.id
