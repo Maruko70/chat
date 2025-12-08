@@ -2,8 +2,76 @@
 const globalSettings = ref<Record<string, any>>({})
 const globalLoading = ref(false)
 
+// localStorage keys
+const STORAGE_KEY = 'site_settings_cache'
+const STORAGE_TIMESTAMP_KEY = 'site_settings_timestamp'
+
 export const useSiteSettings = () => {
   const { api } = useApi()
+
+  /**
+   * Load settings from localStorage
+   */
+  const loadFromStorage = (): { settings: Record<string, any> | null, timestamp: number | null } => {
+    if (!import.meta.client) {
+      return { settings: null, timestamp: null }
+    }
+    
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY)
+      const cachedTimestamp = localStorage.getItem(STORAGE_TIMESTAMP_KEY)
+      
+      if (cached && cachedTimestamp) {
+        return {
+          settings: JSON.parse(cached),
+          timestamp: parseInt(cachedTimestamp, 10)
+        }
+      }
+    } catch (e) {
+      console.error('Error loading site settings from localStorage:', e)
+    }
+    
+    return { settings: null, timestamp: null }
+  }
+
+  /**
+   * Save settings to localStorage
+   */
+  const saveToStorage = (settings: Record<string, any>, timestamp: number) => {
+    if (!import.meta.client) {
+      return
+    }
+    
+    try {
+      // Remove _meta before storing
+      const { _meta, ...settingsToStore } = settings
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsToStore))
+      localStorage.setItem(STORAGE_TIMESTAMP_KEY, timestamp.toString())
+    } catch (e) {
+      console.error('Error saving site settings to localStorage:', e)
+    }
+  }
+
+  /**
+   * Check if settings need to be fetched by comparing timestamps
+   */
+  const checkSettingsTimestamp = async (): Promise<{ needsFetch: boolean, serverTimestamp: number | null }> => {
+    const { timestamp: cachedTimestamp } = loadFromStorage()
+    
+    try {
+      const response = await api('/site-settings/timestamp') as { timestamp: number, updated_at: string | null }
+      const serverTimestamp = response.timestamp || 0
+      
+      // If no cached timestamp or server timestamp is newer, need to fetch
+      const needsFetch = !cachedTimestamp || serverTimestamp > cachedTimestamp
+      
+      return { needsFetch, serverTimestamp }
+    } catch (error) {
+      console.error('Error checking site settings timestamp:', error)
+      // On error, assume we need to fetch (fail-safe)
+      return { needsFetch: true, serverTimestamp: null }
+    }
+  }
 
   const fetchSettings = async (force = false) => {
     // Try to get from bootstrap cache first
@@ -13,6 +81,10 @@ export const useSiteSettings = () => {
         const bootstrap = getBootstrap()
         if (bootstrap?.site_settings) {
           globalSettings.value = bootstrap.site_settings
+          // Save to localStorage if we have timestamp
+          if (bootstrap.site_settings?._meta?.timestamp) {
+            saveToStorage(bootstrap.site_settings, bootstrap.site_settings._meta.timestamp)
+          }
           return globalSettings.value
         }
       } catch (e) {
@@ -28,14 +100,68 @@ export const useSiteSettings = () => {
       }
       return globalSettings.value
     }
+
+    // Check localStorage first (if not forcing)
+    if (!force && import.meta.client) {
+      const { settings: cachedSettings, timestamp: cachedTimestamp } = loadFromStorage()
+      
+      if (cachedSettings && cachedTimestamp) {
+        // Load cached settings immediately (no delay)
+        globalSettings.value = cachedSettings
+        
+        // Check server timestamp in background to see if we need to fetch
+        checkSettingsTimestamp().then(({ needsFetch, serverTimestamp }) => {
+          if (needsFetch && serverTimestamp) {
+            // Settings have changed, fetch fresh data
+            globalLoading.value = true
+            api('/site-settings').then((settings: Record<string, any>) => {
+              const meta = settings._meta || {}
+              const timestamp = meta.timestamp || Date.now()
+              const { _meta, ...settingsWithoutMeta } = settings
+              globalSettings.value = settingsWithoutMeta
+              saveToStorage(settingsWithoutMeta, timestamp)
+            }).catch((error) => {
+              console.error('Error fetching updated site settings:', error)
+            }).finally(() => {
+              globalLoading.value = false
+            })
+          }
+        }).catch((error) => {
+          console.error('Error checking settings timestamp:', error)
+        })
+        
+        // Return cached settings immediately
+        return globalSettings.value
+      }
+    }
     
     globalLoading.value = true
     try {
-      // Add cache-busting parameter to ensure fresh data
-      const timestamp = force ? `?t=${Date.now()}` : ''
-      globalSettings.value = await api(`/site-settings${timestamp}`)
+      // Fetch full settings
+      const settings = await api('/site-settings') as Record<string, any>
+      
+      // Extract and save timestamp
+      const meta = settings._meta || {}
+      const timestamp = meta.timestamp || Date.now()
+      
+      // Remove _meta from settings before storing
+      const { _meta, ...settingsWithoutMeta } = settings
+      globalSettings.value = settingsWithoutMeta
+      
+      // Save to localStorage
+      saveToStorage(settingsWithoutMeta, timestamp)
     } catch (error) {
       console.error('Error fetching site settings:', error)
+      
+      // On error, try to use cached settings as fallback
+      if (!force && import.meta.client) {
+        const { settings: cachedSettings } = loadFromStorage()
+        if (cachedSettings) {
+          globalSettings.value = cachedSettings
+          return globalSettings.value
+        }
+      }
+      
       globalSettings.value = {}
     } finally {
       globalLoading.value = false

@@ -427,14 +427,51 @@
         <!-- Stories Section -->
         <div class="px-2 mb-2">
           <div class="flex gap-2 overflow-x-auto">
-            <div v-for="user in filteredUsers" :key="user.id" class="flex flex-col items-center gap-1 flex-shrink-0">
-              <Avatar
-                :image="user.avatar_url || getDefaultUserImage()"
-                shape="square" class="w-12 h-12 cursor-pointer border-2 border-primary" @click="viewUserStory(user)" />
-              <span class="text-xs text-center max-w-[60px] truncate">{{ user.name || user.username }}</span>
+            <!-- Add Story Button -->
+            <div class="flex flex-col items-center gap-1 flex-shrink-0">
+              <div class="relative">
+                <Avatar
+                  :image="authStore.user?.avatar_url || getDefaultUserImage()"
+                  shape="square"
+                  class="w-12 h-12 cursor-pointer border-2 border-dashed border-gray-400 opacity-70 hover:opacity-100 transition-opacity"
+                  @click="openStoryCreator"
+                />
+                <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-white">
+                  <i class="pi pi-plus text-white text-xs"></i>
+                </div>
+              </div>
+              <span class="text-xs text-center max-w-[60px] truncate">قصتي</span>
+            </div>
+            
+            <!-- User Stories -->
+            <div v-for="storyUser in usersWithStories" :key="storyUser.user.id" class="flex flex-col items-center gap-1 flex-shrink-0">
+              <div class="relative">
+                <Avatar
+                  :image="storyUser.user.avatar_url || getDefaultUserImage()"
+                  shape="square"
+                  class="w-12 h-12 cursor-pointer border-2"
+                  :class="storyUser.has_unviewed ? 'border-primary' : 'border-gray-300'"
+                  @click="viewUserStory(storyUser.user.id)"
+                />
+                <div v-if="storyUser.has_unviewed" class="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full border-2 border-white"></div>
+              </div>
+              <span class="text-xs text-center max-w-[60px] truncate">{{ storyUser.user.name || storyUser.user.username }}</span>
             </div>
           </div>
         </div>
+        
+        <!-- Story Viewer -->
+        <StoryViewer
+          ref="storyViewerRef"
+          :user-id="selectedStoryUserId"
+          @close="selectedStoryUserId = null"
+        />
+        
+        <!-- Story Creator -->
+        <StoryCreator
+          ref="storyCreatorRef"
+          @created="handleStoryCreated"
+        />
 
         <!-- Search Bar -->
         <div class="" style="background-color: var(--site-primary-color); color: var(--site-secondary-color, #ffffff)">
@@ -1503,7 +1540,7 @@
           <div 
             v-if="wallCreator" 
             @click="showWallCreatorsModal = true"
-            class="cursor-pointer transition-all hover:opacity-90 hover:scale-[1.02] rounded-lg overflow-hidden"
+            class="cursor-pointer transition-all hover:opacity-90 hover:scale-[1.02] overflow-hidden"
           >
             <img 
               src="assets/images/banner.gif" 
@@ -1513,7 +1550,7 @@
           </div>
 
           <!-- YouTube Search Bar -->
-          <div class="border rounded-lg p-3" :style="{ borderColor: 'var(--site-primary-color, #450924)' }">
+          <div class="border p-3 my-2" :style="{ borderColor: 'var(--site-primary-color, #450924)' }">
             <div class="flex gap-2 mb-2">
               <InputText 
                 v-model="youtubeSearchQuery" 
@@ -5747,8 +5784,117 @@ const sendMessage = async () => {
 // Messages will clear on page refresh (store resets)
 
 // Users sidebar functions
-const viewUserStory = (user: { id: number; name?: string; username?: string }) => {
-  // TODO: Implement story viewing
+// Stories
+const storyViewerRef = ref()
+const storyCreatorRef = ref()
+const selectedStoryUserId = ref<number | null>(null)
+const usersWithStories = ref<Array<{
+  user: { id: number; name?: string; username?: string; avatar_url?: string }
+  stories: any[]
+  has_unviewed: boolean
+}>>([])
+
+const viewUserStory = (userId: number) => {
+  selectedStoryUserId.value = userId
+  nextTick(() => {
+    storyViewerRef.value?.open(userId)
+  })
+}
+
+const openStoryCreator = () => {
+  storyCreatorRef.value?.open()
+}
+
+const handleStoryCreated = () => {
+  // Story will be added via socket event, no need to fetch
+}
+
+const fetchStories = async () => {
+  try {
+    const { api } = useApi()
+    const response = await api('/stories')
+    
+    // Ensure response is an array
+    if (!Array.isArray(response)) {
+      console.error('Invalid stories response format:', response)
+      usersWithStories.value = []
+      return
+    }
+    
+    // Validate and map the response
+    const stories: Array<{
+      user: { id: number; name?: string; username?: string; avatar_url?: string }
+      stories: any[]
+      has_unviewed: boolean
+    }> = []
+    
+    for (const item of response) {
+      // Ensure item has required structure
+      if (item && typeof item === 'object' && item.user && Array.isArray(item.stories)) {
+        stories.push({
+          user: {
+            id: item.user.id,
+            name: item.user.name,
+            username: item.user.username,
+            avatar_url: item.user.avatar_url,
+          },
+          stories: item.stories,
+          has_unviewed: Boolean(item.has_unviewed),
+        })
+      }
+    }
+    
+    usersWithStories.value = stories
+  } catch (error: any) {
+    console.error('Error fetching stories:', error)
+    usersWithStories.value = []
+  }
+}
+
+const addStoryFromSocket = (storyData: any) => {
+  // Find if user already has stories
+  const existingUserIndex = usersWithStories.value.findIndex(
+    (item) => item.user.id === storyData.user_id
+  )
+
+  const story = {
+    id: storyData.id,
+    media_url: storyData.media_url,
+    media_type: storyData.media_type,
+    caption: storyData.caption,
+    expires_at: storyData.expires_at,
+    created_at: storyData.created_at,
+    is_viewed: storyData.is_viewed || false,
+    views_count: storyData.views_count || 0,
+  }
+
+  if (existingUserIndex !== -1) {
+    // User already has stories, add to their list
+    const userStories = usersWithStories.value[existingUserIndex]
+    if (userStories) {
+      // Check if story already exists (avoid duplicates)
+      const storyExists = userStories.stories.some((s: any) => s.id === story.id)
+      if (!storyExists) {
+        userStories.stories.unshift(story) // Add to beginning
+        // Update has_unviewed if this is a new story from another user
+        if (storyData.user_id !== authStore.user?.id) {
+          userStories.has_unviewed = true
+        }
+      }
+    }
+  } else {
+    // New user with stories, add them
+    usersWithStories.value.push({
+      user: {
+        id: storyData.user.id,
+        name: storyData.user.name,
+        username: storyData.user.username,
+        avatar_url: storyData.user.avatar_url,
+      },
+      stories: [story],
+      has_unviewed: storyData.user_id !== authStore.user?.id, // Not unviewed if it's current user's story
+    })
+  }
 }
 
 const openPrivateChat = async (user: { id: number; name?: string; username?: string; avatar_url?: string }) => {
@@ -8003,8 +8149,7 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       // Reset the flag
       wasDisconnected.value = false
       
-      // Small delay to ensure channel is fully ready
-      await new Promise(resolve => setTimeout(resolve, 300))
+      // No delay - channel is ready when subscribed callback fires
       
       const user = authStore.user
       const joinedMessage = {
@@ -8050,42 +8195,46 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
   })
   
   // Use presence channel events for join/leave notifications
-  channel.here(async (users: any[]) => {
+  channel.here((users: any[]) => {
+    // Update room users immediately (non-blocking)
     if (chatStore.currentRoom) {
       chatStore.currentRoom.users = users
     }
 
-    // Load statuses from backend for all users (if status is not in user object)
+    // Load statuses from backend in background (non-blocking, don't await)
     const userIds = users.filter(u => u?.id).map(u => u.id)
     if (userIds.length > 0) {
-      try {
-        const { $api } = useNuxtApp()
-        const statusResponse = await ($api as any)('/user-status/multiple', {
-          method: 'POST',
-          body: {
-            user_ids: userIds,
-          },
-        })
-        
-        // Update statuses from backend response
-        if (statusResponse?.statuses) {
-          Object.entries(statusResponse.statuses).forEach(([userId, statusData]: [string, any]) => {
-            const uid = parseInt(userId)
-            if (statusData.last_activity) {
-              userLastActivity.value = {
-                ...userLastActivity.value,
-                [uid]: statusData.last_activity,
-              }
-            }
-            if (statusData.status) {
-              setUserConnectionStatus(uid, statusData.status)
-            }
+      // Don't await - load in background
+      Promise.resolve().then(async () => {
+        try {
+          const { $api } = useNuxtApp()
+          const statusResponse = await ($api as any)('/user-status/multiple', {
+            method: 'POST',
+            body: {
+              user_ids: userIds,
+            },
           })
+          
+          // Update statuses from backend response
+          if (statusResponse?.statuses) {
+            Object.entries(statusResponse.statuses).forEach(([userId, statusData]: [string, any]) => {
+              const uid = parseInt(userId)
+              if (statusData.last_activity) {
+                userLastActivity.value = {
+                  ...userLastActivity.value,
+                  [uid]: statusData.last_activity,
+                }
+              }
+              if (statusData.status) {
+                setUserConnectionStatus(uid, statusData.status)
+              }
+            })
+          }
+        } catch (error) {
+          console.warn('Failed to load user statuses from backend:', error)
+          // Continue with local calculation as fallback
         }
-      } catch (error) {
-        console.warn('Failed to load user statuses from backend:', error)
-        // Continue with local calculation as fallback
-      }
+      })
     }
 
     // Initialize status for all users currently in room
@@ -8128,8 +8277,10 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     sendCurrentUserNotifications()
     
     // Welcome message logic for current user (only in here() callback)
+    // Check immediately - no delay
     if (authStore.user && chatStore.currentRoom) {
-      setTimeout(() => {
+      // Use nextTick to ensure room data is available, but don't delay
+      nextTick(() => {
         const existingWelcomeMessage = chatStore.messages.find((m: Message) => 
           m.meta?.is_system && 
           m.meta?.is_welcome_message &&
@@ -8191,7 +8342,7 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
             scrollToBottom()
           })
         }
-      }, 500)
+      })
     }
 
   })
@@ -8773,6 +8924,56 @@ const openWarnings = async () => {
 // Removed saveSettingsOnClose - now using submit button approach
 
 onMounted(async () => {
+  // Initialize Echo/socket connection IMMEDIATELY (FIRST THING - before ANY other operations)
+  // This ensures socket connects as fast as possible
+  if (authStore.isAuthenticated && authStore.token) {
+    // Ensure Echo is initialized (plugin might have done it, but ensure it's ready)
+    initEcho()
+    const echo = getEcho()
+    
+    if (echo && roomId.value) {
+      // Subscribe to room channel IMMEDIATELY (don't wait for ANYTHING)
+      if (!currentChannel) {
+        currentChannel = echo.join(`room.${roomId.value}`)
+        // Set up listeners immediately - they'll work once channel subscribes
+        setupChannelListeners(currentChannel, roomId.value)
+        isSubscribed = true
+      }
+      
+      // Subscribe to user private channel immediately
+      if (!userPrivateChannel && authStore.user) {
+        userPrivateChannel = echo.private(`user.${authStore.user.id}`)
+        userPrivateChannel.subscribed(() => {
+          isUserChannelSubscribed = true
+        })
+      }
+      
+      // Subscribe to global presence channel immediately
+      if (!globalPresenceChannel) {
+        globalPresenceChannel = echo.join('presence')
+      }
+      
+      // Subscribe to stories channel for real-time updates
+      const storiesChannel = echo.channel('stories')
+      storiesChannel.listen('.story.created', (data: any) => {
+        // Add story directly from socket event (no API call needed)
+        addStoryFromSocket(data)
+      })
+      
+      // Track connection state immediately
+      try {
+        // @ts-ignore
+        const pusher = echo.connector?.pusher || echo.pusher
+        if (pusher && pusher.connection) {
+          const initialState = pusher.connection.state === 'connected' || pusher.connection.state === 'connecting'
+          chatStore.setConnected(initialState)
+        }
+      } catch (error) {
+        // Ignore errors, connection will be tracked later
+      }
+    }
+  }
+
   // Load last activity from localStorage for immediate status calculation
   if (authStore.user?.id) {
     const loadedActivity = loadLastActivity()
@@ -8784,19 +8985,19 @@ onMounted(async () => {
     setUserConnectionStatus(user.id, initialStatus)
   }
   
-  // Fetch emojis from database (cached for quick loading)
-  try {
-    await fetchEmojis()
+  // Fetch emojis from database (non-blocking, parallel)
+  fetchEmojis().then(() => {
     emojiList.value = getEmojiList()
-  } catch (error) {
+  }).catch((error) => {
     console.error('Error loading emojis:', error)
-    // Fallback to empty list - legacy emojis will still work via getEmojiPath fallback
     emojiList.value = []
-  }
+  })
 
-  // Fetch settings from API (user-scoped)
+  // Fetch settings from API (non-blocking, parallel)
   if (authStore.isAuthenticated) {
-    await settingsStore.fetchFromAPI()
+    settingsStore.fetchFromAPI().catch((error) => {
+      console.error('Error fetching settings:', error)
+    })
   }
 
   // Set up time interval for relative time updates
@@ -8827,62 +9028,59 @@ onMounted(async () => {
     return
   }
 
-  // Load room first, then messages from database
+  // Load room first (blocking - needed for room data)
   try {
     await chatStore.fetchRoom(roomId.value)
     // Password validation successful - reset flag
     isPasswordValidated.value = true
     
-    // Load bootstrap data after room is successfully loaded (non-blocking)
-    // This loads site settings, rooms, and shortcuts in one request
-    try {
-      await initBootstrap()
-      const bootstrap = getBootstrap()
-      
-      if (bootstrap) {
-        // Load site settings from bootstrap
-        const { loadFromBootstrap } = useSiteSettings()
-        loadFromBootstrap(bootstrap.site_settings)
-        
-        // Load rooms from bootstrap (if not already loaded)
-        if (bootstrap.rooms && bootstrap.rooms.length > 0) {
-          chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
-        }
-      }
-    } catch (bootstrapError) {
-      console.error('Error loading bootstrap data:', bootstrapError)
-      // Non-critical - continue without bootstrap data
-    }
-    
-    // Fetch active users after room is loaded (non-blocking)
-    try {
-      await chatStore.fetchActiveUsers()
-
-      // Mark all active users (in any room) as online based on socket/global activity
-      const allActiveUsers = chatStore.displayActiveUsers || []
-      allActiveUsers.forEach((u: User) => {
-        if (u && typeof u.id === 'number') {
-          markUserActiveOnSocket(u.id)
-        }
-      })
-    } catch (error) {
-      console.error('Error loading active users:', error)
-      // Non-critical - continue without active users
-    }
-    
-    // Fetch private messages unread count (non-blocking)
-    try {
-      await privateMessagesStore.fetchUnreadCount()
-    } catch (error) {
-      console.error('Error loading private messages unread count:', error)
-      // Non-critical - continue without unread count
-    }
-    
-    // Fetch wall posts for the room
-    await fetchWallPosts()
-    
-    // Focus on message input after room is loaded
+    // Focus on message input immediately after room is loaded
     focusMessageInput()
+    
+    // Load all other data in parallel (non-blocking)
+    Promise.allSettled([
+      // Bootstrap data (site settings, rooms, shortcuts)
+      initBootstrap().then(() => {
+        const bootstrap = getBootstrap()
+        if (bootstrap) {
+          const { loadFromBootstrap } = useSiteSettings()
+          loadFromBootstrap(bootstrap.site_settings)
+          
+          if (bootstrap.rooms && bootstrap.rooms.length > 0) {
+            chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
+          }
+        }
+      }).catch((error) => {
+        console.error('Error loading bootstrap data:', error)
+      }),
+      
+      // Active users
+      chatStore.fetchActiveUsers().then(() => {
+        const allActiveUsers = chatStore.displayActiveUsers || []
+        allActiveUsers.forEach((u: User) => {
+          if (u && typeof u.id === 'number') {
+            markUserActiveOnSocket(u.id)
+          }
+        })
+      }).catch((error) => {
+        console.error('Error loading active users:', error)
+      }),
+      
+      // Private messages unread count
+      privateMessagesStore.fetchUnreadCount().catch((error) => {
+        console.error('Error loading private messages unread count:', error)
+      }),
+      
+      // Wall posts
+      fetchWallPosts().catch((error) => {
+        console.error('Error loading wall posts:', error)
+      }),
+    ]).finally(() => {
+      // Load stories AFTER all other work is finished
+      fetchStories().catch((error) => {
+        console.error('Error loading stories:', error)
+      })
+    })
   } catch (error: any) {
 
     
@@ -8926,23 +9124,19 @@ onMounted(async () => {
   // Set loading to false
   chatStore.loading = false
 
-  // Set up scheduled messages for this room (local, user-specific)
-  // Wait for room data to be loaded and for welcome/system messages to be sent first
-  // Welcome messages are sent in channel.subscribed() with 500ms delay, so wait longer
-  await nextTick()
-  await new Promise(resolve => setTimeout(resolve, 1500)) // Wait 1.5 seconds for welcome/system messages
-  
-  if (chatStore.currentRoom) {
-    setupScheduledMessages(Number(roomId.value))
-  } else {
-    console.warn('Current room not set after fetchRoom')
-  }
+  // Set up scheduled messages for this room (non-blocking, with small delay)
+  // Welcome messages are sent in channel.subscribed() with 500ms delay
+  nextTick().then(() => {
+    setTimeout(() => {
+      if (chatStore.currentRoom) {
+        setupScheduledMessages(Number(roomId.value))
+      }
+    }, 1000) // Reduced from 1.5s to 1s
+  })
 
-  // Subscribe to Echo channel for real-time updates
-  // Only subscribe if we don't already have a channel for this room
+  // Track connection state (Echo already initialized and subscribed above)
   const echo = getEcho()
   
-  // Track connection state
   if (echo) {
     try {
       // @ts-ignore - accessing internal connector property
@@ -9108,29 +9302,21 @@ onMounted(async () => {
     chatStore.setConnected(false)
   }
   
-  if (echo && !isSubscribed) {
-    // Check if we need to leave a previous room
-    if (currentChannel && previousRoomId && String(previousRoomId) !== String(roomId.value)) {
-      echo.leave(`room.${previousRoomId}`)
-      currentChannel = null
-    }
-    
-    // Only subscribe if we don't have a channel for the current room
-    if (!currentChannel || String(previousRoomId) !== String(roomId.value)) {
+  // Socket already subscribed at the beginning of onMounted
+  // Only handle edge cases here if needed
+  if (echo && !isSubscribed && roomId.value) {
+    // Fallback: if somehow not subscribed, subscribe now
+    if (!currentChannel) {
       currentChannel = echo.join(`room.${roomId.value}`)
-      
-      // Debug: Log channel subscription
-      
-      // Set up all channel listeners using the extracted function
       setupChannelListeners(currentChannel, roomId.value)
       isSubscribed = true
     }
   }
 
-  // Subscribe to global presence channel for cross-room status updates (only once)
-  if (echo && authStore.user && !globalPresenceChannel) {
+  // Global presence channel already subscribed at the beginning
+  // Only set up listeners if not already done
+  if (echo && authStore.user && globalPresenceChannel) {
     try {
-      globalPresenceChannel = echo.join('presence')
       
       globalPresenceChannel.subscribed(() => {
         

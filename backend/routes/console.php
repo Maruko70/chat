@@ -9,3 +9,9 @@ Schedule::command('users:batch-update-statuses')
     ->everyThirtySeconds()
     ->withoutOverlapping()
     ->runInBackground();
+
+// Schedule removal of offline/inactive users from rooms every 5 minutes
+Schedule::command('users:remove-inactive --minutes=10')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

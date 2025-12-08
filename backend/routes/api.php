@@ -23,6 +23,7 @@ use App\Http\Controllers\FilteredWordViolationController;
 use App\Http\Controllers\UserWarningController;
 use App\Http\Controllers\BootstrapController;
 use App\Http\Controllers\UserStatusController;
+use App\Http\Controllers\StoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -52,6 +53,7 @@ Route::get('/bootstrap', [BootstrapController::class, 'index']);
 
 // Public site settings route (for favicon, SEO, etc.)
 Route::get('/site-settings', [SiteSettingsController::class, 'index']);
+Route::get('/site-settings/timestamp', [SiteSettingsController::class, 'timestamp']);
 Route::get('/site-settings/{key}', [SiteSettingsController::class, 'show']);
 
 // Public shortcuts route (for chat expansion)
@@ -105,6 +107,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/chat/{roomId}/wall-posts/{id}/comments', [WallPostController::class, 'storeComment']);
     Route::delete('/chat/{roomId}/wall-posts/{postId}/comments/{commentId}', [WallPostController::class, 'deleteComment']);
     Route::get('/chat/{roomId}/wall-creator', [WallPostController::class, 'getWallCreator']);
+    
+    // Stories routes
+    Route::get('/stories', [StoryController::class, 'index']);
+    Route::get('/stories/user/{userId}', [StoryController::class, 'show']);
+    Route::post('/stories', [StoryController::class, 'store']);
+    Route::post('/stories/{storyId}/view', [StoryController::class, 'markAsViewed']);
+    Route::delete('/stories/{storyId}', [StoryController::class, 'destroy']);
+    Route::get('/stories/{storyId}/views', [StoryController::class, 'views']);
     
     // YouTube search route
     Route::get('/youtube/search', [YouTubeController::class, 'search']);

@@ -12,6 +12,24 @@ use Illuminate\Support\Str;
 class SiteSettingsController extends Controller
 {
     /**
+     * Get the timestamp of when site settings were last updated.
+     * This is a lightweight endpoint to check if settings have changed.
+     */
+    public function timestamp(): JsonResponse
+    {
+        $timestamp = Cache::remember('site_settings_timestamp', 3600, function () {
+            // Get the most recent updated_at timestamp from all settings
+            $lastUpdated = SiteSettings::max('updated_at');
+            return $lastUpdated ? strtotime($lastUpdated) : 0;
+        });
+        
+        return response()->json([
+            'timestamp' => $timestamp,
+            'updated_at' => $timestamp ? date('Y-m-d H:i:s', $timestamp) : null,
+        ]);
+    }
+
+    /**
      * Display a listing of site settings.
      * Cached for 1 hour to reduce database queries.
      */
@@ -19,6 +37,12 @@ class SiteSettingsController extends Controller
     {
         $settings = Cache::remember('site_settings_all', 3600, function () {
             return SiteSettings::orderBy('key')->get();
+        });
+        
+        // Get the timestamp for this response
+        $timestamp = Cache::remember('site_settings_timestamp', 3600, function () {
+            $lastUpdated = SiteSettings::max('updated_at');
+            return $lastUpdated ? strtotime($lastUpdated) : 0;
         });
         
         // Transform settings into a key-value object for easier access
@@ -33,6 +57,12 @@ class SiteSettingsController extends Controller
                 'updated_at' => $setting->updated_at,
             ];
         }
+        
+        // Add metadata with timestamp
+        $settingsObject['_meta'] = [
+            'timestamp' => $timestamp,
+            'updated_at' => $timestamp ? date('Y-m-d H:i:s', $timestamp) : null,
+        ];
         
         return response()->json($settingsObject);
     }
@@ -95,6 +125,7 @@ class SiteSettingsController extends Controller
 
         // Clear cache when settings are updated
         Cache::forget('site_settings_all');
+        Cache::forget('site_settings_timestamp');
         Cache::forget('bootstrap_data');
 
         return response()->json([
@@ -153,6 +184,7 @@ class SiteSettingsController extends Controller
 
         // Clear cache when settings are updated
         Cache::forget('site_settings_all');
+        Cache::forget('site_settings_timestamp');
         Cache::forget('bootstrap_data');
 
         return response()->json([
@@ -196,6 +228,7 @@ class SiteSettingsController extends Controller
 
         // Clear cache when settings are updated
         Cache::forget('site_settings_all');
+        Cache::forget('site_settings_timestamp');
         Cache::forget('bootstrap_data');
 
         return response()->json(['message' => 'Image deleted successfully']);
