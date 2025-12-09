@@ -5816,8 +5816,41 @@ const viewUserStory = (userId: number) => {
   })
 }
 
-const openStoryCreator = () => {
-  storyCreatorRef.value?.open()
+const openStoryCreator = async () => {
+  // Ensure component is loaded (for lazy-loaded components)
+  try {
+    // Wait for next tick to ensure DOM is updated
+    await nextTick()
+    
+    // Try multiple times with increasing delays if component isn't ready
+    let attempts = 0
+    const maxAttempts = 5
+    const checkAndOpen = () => {
+      attempts++
+      if (storyCreatorRef.value && typeof storyCreatorRef.value.open === 'function') {
+        storyCreatorRef.value.open()
+        return true
+      }
+      return false
+    }
+    
+    // Try immediately
+    if (checkAndOpen()) return
+    
+    // Try with delays
+    const tryOpen = () => {
+      if (checkAndOpen()) return
+      if (attempts < maxAttempts) {
+        setTimeout(tryOpen, 50 * attempts) // Increasing delay: 50ms, 100ms, 150ms, etc.
+      } else {
+        console.warn('StoryCreator component not ready after multiple attempts')
+      }
+    }
+    
+    setTimeout(tryOpen, 50)
+  } catch (error) {
+    console.error('Error opening story creator:', error)
+  }
 }
 
 const handleStoryCreated = () => {
@@ -8157,20 +8190,22 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
     }
     
     // Check for duplicate messages
-    const existingMessage = chatStore.messages.find((m: Message) => 
-      m.meta?.is_system && 
-      m.user_id === user.id && 
-      m.meta?.action === action &&
-      m.room_id === Number(currentRoomId) &&
-      new Date(m.created_at).getTime() > Date.now() - 5000
-    )
-    
-    if (!existingMessage) {
-      chatStore.addMessage(systemMessage)
-      nextTick(() => {
-        scrollToBottom()
-      })
-    } 
+      // Check for duplicate messages (including optimistic ones we created)
+      // Skip if we already showed an optimistic message for this user in this room
+      const existingMessage = chatStore.messages.find((m: Message) => 
+        m.meta?.is_system && 
+        m.user_id === user.id && 
+        (m.meta?.action === action || m.meta?.action === 'joined' || m.meta?.action === 'moved') &&
+        m.room_id === Number(currentRoomId) &&
+        new Date(m.created_at).getTime() > Date.now() - 5000
+      )
+      
+      if (!existingMessage) {
+        chatStore.addMessage(systemMessage)
+        nextTick(() => {
+          scrollToBottom()
+        })
+      }
   }
 
   channel.subscribed(async () => {
@@ -8286,10 +8321,9 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       // Use nextTick to ensure room data is available, but don't delay
       nextTick(() => {
         const existingWelcomeMessage = chatStore.messages.find((m: Message) => 
-          m.meta?.is_system && 
           m.meta?.is_welcome_message &&
           m.room_id === Number(currentRoomId) &&
-          new Date(m.created_at).getTime() > Date.now() - 10000
+          new Date(m.created_at).getTime() > Date.now() - 2000 // Check last 2 seconds to avoid duplicates
         )
         
         if (!existingWelcomeMessage && authStore.user && chatStore.currentRoom?.welcome_message) {
@@ -8520,10 +8554,18 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
         updated_at: new Date().toISOString(),
       }
       
+      // Check for duplicate messages (including optimistic ones we created)
+      // Skip if we already showed an optimistic message for this user in this room
+      // IMPORTANT: For "moved" action, always skip - we show optimistic message immediately when switching rooms
+      if (action === 'moved') {
+        // Always skip moved messages from socket - we already showed optimistic message
+        return
+      }
+      
       const existingMessage = chatStore.messages.find((m: Message) => 
         m.meta?.is_system && 
         m.user_id === user.id && 
-        m.meta?.action === action &&
+        (m.meta?.action === action || m.meta?.action === 'joined' || m.meta?.action === 'moved') &&
         m.room_id === Number(currentRoomId) &&
         new Date(m.created_at).getTime() > Date.now() - 5000
       )
@@ -8608,8 +8650,28 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
   // Listen for system messages from backend (for "joined" on reconnect)
   channel.listen('.system.message', (data: any) => {
     if (data && data.meta?.is_system && String(data.room_id) === String(currentRoomId)) {
-      // Only handle "joined" messages for the current user (reconnect scenario)
+      // ALWAYS skip "moved" messages for current user - we show optimistic message immediately
+      // For "joined" messages, only show if it's a reconnect (no optimistic message exists)
+      if (data.meta?.action === 'moved' && data.user_id === authStore.user?.id) {
+        // Always skip moved messages for current user - we already showed optimistic message
+        return
+      }
+      
       if (data.meta?.action === 'joined' && data.user_id === authStore.user?.id) {
+        // Check if we already showed an optimistic message for this user in this room
+        const existingOptimisticMessage = chatStore.messages.find((m: Message) => 
+          m.meta?.is_system && 
+          m.user_id === data.user_id && 
+          (m.meta?.action === 'joined' || m.meta?.action === 'moved') &&
+          m.room_id === data.room_id &&
+          new Date(m.created_at).getTime() > Date.now() - 5000
+        )
+        
+        // Skip if we already showed an optimistic message
+        if (existingOptimisticMessage) {
+          return
+        }
+        
         // Check if message already exists to avoid duplicates
         const existingMessage = chatStore.messages.find((m: Message) => 
           m.id === data.id || 
@@ -8627,8 +8689,7 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
           })
         }
       }
-      // For other users' "joined" messages, they're handled by channel.joining() event
-      // For "moved" messages, they're handled separately
+      // For other users' "joined" and "moved" messages, they're handled by channel.joining() event and whispers
     }
   })
 
@@ -9806,16 +9867,154 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
     isSubscribed = false
   }
   
-  // Fetch the new room (this updates currentRoom but doesn't clear messages)
-  // setCurrentRoom already doesn't clear messages, so this is safe
+  // OPTIMIZATION: Use cached room data immediately for instant UI feedback
+  const cachedRoom = chatStore.displayRooms.find((r: Room) => String(r.id) === String(newRoomId))
+  if (cachedRoom) {
+    // Set cached room immediately for instant UI update
+    chatStore.currentRoom = cachedRoom
+    chatStore.currentRoomId = Number(newRoomId)
+  }
+  
+  // Subscribe to channel IMMEDIATELY (before fetchRoom) for instant connection
+  currentChannel = echo.join(`room.${newRoomId}`)
+  setupChannelListeners(currentChannel, newRoomId)
+  isSubscribed = true
+  
+  // Show system message (join) and welcome message IMMEDIATELY after channel subscription
+  // This gives the feeling of instant join
+  // IMPORTANT: System message (join) should appear BEFORE welcome message
+  if (authStore.user && cachedRoom) {
+    const user = authStore.user
+    
+    // Show join message FIRST (system message - always show when joining, not just when switching)
+    const joinedMessage = {
+      id: `system-joined-switch-${Date.now()}-${Math.random()}`,
+      room_id: Number(newRoomId),
+      user_id: user.id,
+      user: {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        avatar_url: user.avatar_url || getSystemMessagesImage(),
+        name_color: user.name_color || { r: 69, g: 9, b: 36 },
+        message_color: user.message_color || { r: 69, g: 9, b: 36 },
+        image_border_color: user.image_border_color || { r: 69, g: 9, b: 36 },
+        name_bg_color: user.name_bg_color || 'transparent',
+      },
+      content: `هذا المستخدم انضم إلى`,
+      meta: {
+        room_name: cachedRoom.name || `الغرفة ${newRoomId}`,
+        is_system: true,
+        action: oldRoomId ? 'moved' : 'joined',
+        previous_room_id: oldRoomId ? Number(oldRoomId) : null,
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    
+    // Check if message already exists (avoid duplicates)
+    const existingMessage = chatStore.messages.find((m: Message) => 
+      m.meta?.is_system && 
+      m.user_id === user.id && 
+      (m.meta?.action === 'joined' || m.meta?.action === 'moved') &&
+      m.room_id === Number(newRoomId) &&
+      new Date(m.created_at).getTime() > Date.now() - 2000
+    )
+    
+    if (!existingMessage) {
+      chatStore.addMessage(joinedMessage)
+      // Scroll immediately without waiting for nextTick
+      requestAnimationFrame(() => {
+        scrollToBottom()
+      })
+    }
+    
+    // Show welcome message AFTER join message if available (optimistic)
+    if (cachedRoom.welcome_message) {
+      const roomNameColor = getRoomNameColor(cachedRoom)
+      const roomTextColor = getRoomTextColor(cachedRoom)
+      const roomBorderColor = getRoomBorderColor(cachedRoom)
+      
+      const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
+        if (!hex) return null
+        const cleanHex = hex.replace('#', '')
+        if (cleanHex.length === 6) {
+          return {
+            r: parseInt(cleanHex.substring(0, 2), 16),
+            g: parseInt(cleanHex.substring(2, 4), 16),
+            b: parseInt(cleanHex.substring(4, 6), 16),
+          }
+        }
+        return null
+      }
+      
+      const nameColorRgb = hexToRgb(roomNameColor) || { r: 100, g: 100, b: 100 }
+      const messageColorRgb = hexToRgb(roomTextColor) || { r: 100, g: 100, b: 100 }
+      const borderColorRgb = hexToRgb(roomBorderColor) || { r: 100, g: 100, b: 100 }
+      
+      const roomImageUrl = cachedRoom.room_image_url || cachedRoom.room_image || cachedRoom.room_cover || null
+      
+      const welcomeMessage = {
+        id: `welcome-switch-${Date.now()}-${Math.random()}`,
+        room_id: Number(newRoomId),
+        user_id: 0,
+        user: {
+          id: 0,
+          name: cachedRoom.name,
+          username: 'room',
+          avatar_url: roomImageUrl ? getRoomImageUrl(roomImageUrl) : (getSystemMessagesImage() || null),
+          name_color: nameColorRgb,
+          message_color: messageColorRgb,
+          image_border_color: borderColorRgb,
+          name_bg_color: 'transparent',
+        },
+        content: cachedRoom.welcome_message,
+        meta: {
+          is_system: true,
+          is_welcome_message: true,
+          action: 'welcome',
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      
+      // Check if welcome message already exists (avoid duplicates)
+      const existingWelcomeMessage = chatStore.messages.find((m: Message) => 
+        m.meta?.is_welcome_message &&
+        m.room_id === Number(newRoomId) &&
+        new Date(m.created_at).getTime() > Date.now() - 2000
+      )
+      
+      if (!existingWelcomeMessage) {
+        chatStore.addMessage(welcomeMessage)
+        // Scroll immediately without waiting for nextTick
+        requestAnimationFrame(() => {
+          scrollToBottom()
+        })
+      }
+    }
+    
+    // Focus on message input immediately
+    focusMessageInput()
+  }
+  
+  // Mark current user as active immediately
+  if (authStore.user?.id) {
+    markUserActiveOnSocket(authStore.user.id)
+  }
+  
+  // Fetch the new room in background (updates currentRoom with fresh data)
+  // This happens AFTER UI is already updated for instant feedback
   try {
     await chatStore.fetchRoom(newRoomId)
     // Password validation successful - reset flag
     isPasswordValidated.value = true
     // Wall posts will be fetched when user opens wall sidebar (lazy loading)
-
-    // Focus on message input after switching rooms
-    focusMessageInput()
+    
+    // Set up scheduled messages immediately after room is loaded (no delay needed)
+    if (chatStore.currentRoom) {
+      setupScheduledMessages(Number(newRoomId))
+    }
   } catch (error: any) {
     
     // Check if room requires password
@@ -9851,52 +10050,6 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
     }
     return
   }
-  
-  // Ensure currentRoom is set before proceeding
-  if (!chatStore.currentRoom || String(chatStore.currentRoom.id) !== String(newRoomId)) {
-    console.warn('Watch handler: currentRoom not set correctly after fetchRoom, waiting...')
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // Try fetching again if still not set
-    if (!chatStore.currentRoom || String(chatStore.currentRoom.id) !== String(newRoomId)) {
-      try {
-        await chatStore.fetchRoom(newRoomId)
-        isPasswordValidated.value = true
-      } catch (error: any) {
-        if (error.data?.requires_password || error.status === 403 || error.message?.includes('password')) {
-          passwordProtectedRoomId.value = Number(newRoomId)
-          passwordProtectedRoomName.value = error.data?.room_name || 'الغرفة'
-          showPasswordDialog.value = true
-          isPasswordValidated.value = false // Reset validation flag
-          return
-        }
-      }
-    }
-  }
-  
-  // Don't load messages from database - only show messages received via real-time during the session
-  // Messages will clear on page refresh (store resets)
-  
-  // Set up scheduled messages for the new room
-  // Wait for room data to be loaded and for welcome/system messages to be sent first
-  // Welcome messages are sent in channel.subscribed() with 500ms delay, so wait longer
-  await nextTick()
-  await new Promise(resolve => setTimeout(resolve, 1500)) // Wait 1.5 seconds for welcome/system messages
-  
-  if (chatStore.currentRoom) {
-    setupScheduledMessages(Number(newRoomId))
-  }
-  
-  // Subscribe to new room channel
-  currentChannel = echo.join(`room.${newRoomId}`)
-  
-  // Mark current user as active when changing rooms (this is an interaction)
-  if (authStore.user?.id) {
-    markUserActiveOnSocket(authStore.user.id)
-  }
-  
-  // Set up all channel listeners
-  setupChannelListeners(currentChannel, newRoomId)
-  isSubscribed = true
 
   if (oldRoomId && authStore.user) {
     setTimeout(() => {

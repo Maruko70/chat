@@ -118,7 +118,8 @@ class RoomController extends Controller
             return $banCheck;
         }
 
-        $room = Room::with(['users.media', 'users.roleGroups', 'messages.user.media', 'messages.user.roleGroups'])
+        // Don't load messages here - they're loaded separately via messages endpoint for better performance
+        $room = Room::with(['users.media', 'users.roleGroups'])
             ->findOrFail($id);
         
         // Check if room has password and user is not already a member
