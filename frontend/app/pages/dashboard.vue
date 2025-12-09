@@ -79,59 +79,57 @@
 
       <!-- Content Area -->
       <main class="flex-1 p-6 overflow-y-auto">
-        <!--  loaded management components -->
-        <Suspense>
-          <template #default>
-            <!-- Login Logs Management -->
-            <LoginLogsManagement v-if="selectedMenuItem === 'log'" />
-            
-            <!-- Ban Management -->
-            <BanManagement v-else-if="selectedMenuItem === 'ban'" />
-            
-            <!-- Reports Management -->
-            <ReportsManagement v-else-if="selectedMenuItem === 'reports'" />
-            
-            <!-- Subscriptions Management -->
-            <SubscriptionsManagement v-else-if="selectedMenuItem === 'subscriptions'" />
-            
-            <!-- Role Groups Management -->
-            <RoleGroupsManagement v-else-if="selectedMenuItem === 'permissions'" />
-            
-            <!-- Symbols Management -->
-            <SymbolsManagement v-else-if="selectedMenuItem === 'symbols'" />
-            
-            <!-- Rooms Management -->
-            <RoomsManagement v-else-if="selectedMenuItem === 'rooms'" />
-            
-            <!-- Site Management -->
-            <SiteManagement v-else-if="selectedMenuItem === 'site'" />
-            
-            <!-- Users Management -->
-            <UsersManagement v-else-if="selectedMenuItem === 'members'" />
-            
-            <!-- Scheduled Messages Management -->
-            <ScheduledMessagesManagement v-else-if="selectedMenuItem === 'messages'" />
-            
-            <!-- Settings Management -->
-            <SettingsManagement v-else-if="selectedMenuItem === 'settings'" />
-            
-            <!-- Membership Designs Management -->
-            <MembershipDesignsManagement v-else-if="selectedMenuItem === 'membership-designs'" />
-            
-            <!-- Premium Entry Backgrounds Management -->
-            <PremiumEntryBackgroundsManagement v-else-if="selectedMenuItem === 'premium-entry-backgrounds'" />
-            
-            <!-- Shortcuts Management -->
-            <ShortcutsManagement v-else-if="selectedMenuItem === 'shortcuts'" />
-            
-            <!-- Filter Management -->
-            <FilterManagement v-else-if="selectedMenuItem === 'filter'" />
-            
-            <!-- Violations Management -->
-            <ViolationsManagement v-else-if="selectedMenuItem === 'violations'" />
-            
-            <!-- Default placeholder for other menu items -->
-            <Card v-else>
+        <!-- Lazy loaded management components -->
+        <!-- Login Logs Management -->
+        <component :is="LoginLogsManagement" v-if="selectedMenuItem === 'log'" :key="'log'" />
+        
+        <!-- Ban Management -->
+        <component :is="BanManagement" v-else-if="selectedMenuItem === 'ban'" :key="'ban'" />
+        
+        <!-- Reports Management -->
+        <component :is="ReportsManagement" v-else-if="selectedMenuItem === 'reports'" :key="'reports'" />
+        
+        <!-- Subscriptions Management -->
+        <component :is="SubscriptionsManagement" v-else-if="selectedMenuItem === 'subscriptions'" :key="'subscriptions'" />
+        
+        <!-- Role Groups Management -->
+        <component :is="RoleGroupsManagement" v-else-if="selectedMenuItem === 'permissions'" :key="'permissions'" />
+        
+        <!-- Symbols Management -->
+        <component :is="SymbolsManagement" v-else-if="selectedMenuItem === 'symbols'" :key="'symbols'" />
+        
+        <!-- Rooms Management -->
+        <component :is="RoomsManagement" v-else-if="selectedMenuItem === 'rooms'" :key="'rooms'" />
+        
+        <!-- Site Management -->
+        <component :is="SiteManagement" v-else-if="selectedMenuItem === 'site'" :key="'site'" />
+        
+        <!-- Users Management -->
+        <component :is="UsersManagement" v-else-if="selectedMenuItem === 'members'" :key="'members'" />
+        
+        <!-- Scheduled Messages Management -->
+        <component :is="ScheduledMessagesManagement" v-else-if="selectedMenuItem === 'messages'" :key="'messages'" />
+        
+        <!-- Settings Management -->
+        <component :is="SettingsManagement" v-else-if="selectedMenuItem === 'settings'" :key="'settings'" />
+        
+        <!-- Membership Designs Management -->
+        <component :is="MembershipDesignsManagement" v-else-if="selectedMenuItem === 'membership-designs'" :key="'membership-designs'" />
+        
+        <!-- Premium Entry Backgrounds Management -->
+        <component :is="PremiumEntryBackgroundsManagement" v-else-if="selectedMenuItem === 'premium-entry-backgrounds'" :key="'premium-entry-backgrounds'" />
+        
+        <!-- Shortcuts Management -->
+        <component :is="ShortcutsManagement" v-else-if="selectedMenuItem === 'shortcuts'" :key="'shortcuts'" />
+        
+        <!-- Filter Management -->
+        <component :is="FilterManagement" v-else-if="selectedMenuItem === 'filter'" :key="'filter'" />
+        
+        <!-- Violations Management -->
+        <component :is="ViolationsManagement" v-else-if="selectedMenuItem === 'violations'" :key="'violations'" />
+        
+        <!-- Default placeholder for other menu items -->
+        <Card v-else>
           <template #content>
             <div class="text-center py-12">
               <i :class="[currentMenuItem?.icon || 'pi pi-info-circle', 'text-6xl text-gray-300 mb-4']"></i>
@@ -144,24 +142,14 @@
             </div>
           </template>
         </Card>
-          </template>
-          <template #fallback>
-            <Card>
-              <template #content>
-                <div class="text-center py-12">
-                  <i class="pi pi-spin pi-spinner text-4xl text-gray-400 mb-4"></i>
-                  <p class="text-gray-500">جاري التحميل...</p>
-                </div>
-              </template>
-            </Card>
-          </template>
-        </Suspense>
       </main>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
+
 definePageMeta({
   middleware: 'auth',
 })
@@ -172,6 +160,24 @@ const router = useRouter()
 // Sidebar visible by default on desktop, hidden on mobile
 const sidebarVisible = ref(false)
 const selectedMenuItem = ref('log')
+
+// Lazy load components using defineAsyncComponent
+const LoginLogsManagement = defineAsyncComponent(() => import('~~/app/components/LoginLogsManagement.vue'))
+const BanManagement = defineAsyncComponent(() => import('~~/app/components/BanManagement.vue'))
+const ReportsManagement = defineAsyncComponent(() => import('~~/app/components/ReportsManagement.vue'))
+const SubscriptionsManagement = defineAsyncComponent(() => import('~~/app/components/SubscriptionsManagement.vue'))
+const RoleGroupsManagement = defineAsyncComponent(() => import('~~/app/components/RoleGroupsManagement.vue'))
+const SymbolsManagement = defineAsyncComponent(() => import('~~/app/components/SymbolsManagement.vue'))
+const RoomsManagement = defineAsyncComponent(() => import('~~/app/components/RoomsManagement.vue'))
+const SiteManagement = defineAsyncComponent(() => import('~~/app/components/SiteManagement.vue'))
+const UsersManagement = defineAsyncComponent(() => import('~~/app/components/UsersManagement.vue'))
+const ScheduledMessagesManagement = defineAsyncComponent(() => import('~~/app/components/ScheduledMessagesManagement.vue'))
+const SettingsManagement = defineAsyncComponent(() => import('~~/app/components/SettingsManagement.vue'))
+const MembershipDesignsManagement = defineAsyncComponent(() => import('~~/app/components/MembershipDesignsManagement.vue'))
+const PremiumEntryBackgroundsManagement = defineAsyncComponent(() => import('~~/app/components/PremiumEntryBackgroundsManagement.vue'))
+const ShortcutsManagement = defineAsyncComponent(() => import('~~/app/components/ShortcutsManagement.vue'))
+const FilterManagement = defineAsyncComponent(() => import('~~/app/components/FilterManagement.vue'))
+const ViolationsManagement = defineAsyncComponent(() => import('~~/app/components/ViolationsManagement.vue'))
 
 const menuItems = [
   {
