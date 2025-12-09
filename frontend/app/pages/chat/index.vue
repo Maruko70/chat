@@ -470,7 +470,6 @@
         
         <!-- Story Creator - Lazy loaded -->
         <LazyStoryCreator
-          v-if="showStoryCreator"
           ref="storyCreatorRef"
           @created="handleStoryCreated"
         />
@@ -7827,12 +7826,10 @@ const toggleSocketConnection = async () => {
         }
       }
     } else {
-      toast.add({
-        severity: 'warn',
-        summary: 'غير مصرح',
-        detail: 'يجب تسجيل الدخول أولاً',
-        life: 3000,
-      })
+      // User is not authenticated - silently fail
+      // Don't show toast as this page should be protected by auth middleware
+      // If user reaches here without auth, they'll be redirected by middleware
+      console.warn('Socket connection attempted without authentication')
     }
   }
 }
@@ -8926,7 +8923,30 @@ const openWarnings = async () => {
 // Removed saveSettingsOnClose - now using submit button approach
 
 onMounted(async () => {
+  // Background authentication FIRST - refresh token and check user status BEFORE any API calls or socket connections
+  // This ensures we have a valid, fresh token before making any authenticated requests
+  if (authStore.isAuthenticated) {
+    try {
+      await authStore.backgroundAuth()
+      
+      // If Echo was already initialized (by plugin) with an expired token, disconnect and reinitialize it
+      // This ensures Echo uses the fresh token from backgroundAuth
+      const existingEcho = getEcho()
+      if (existingEcho) {
+        disconnect()
+        // Small delay to ensure disconnect completes
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    } catch (error) {
+      // If background auth fails (user banned, etc.), it will handle redirect/logout internally
+      // Don't proceed with any operations if auth fails
+      console.error('Background auth error:', error)
+      return
+    }
+  }
+  
   // Initialize room ID if not set - default to room 1 (general room)
+  // This happens AFTER backgroundAuth to ensure we have a valid token
   if (!chatStore.currentRoomId) {
     // Try to find general room from cached rooms first
     const cachedRooms = chatStore.displayRooms
@@ -8941,6 +8961,7 @@ onMounted(async () => {
       }
     } else {
       // Fetch general room or default to room 1
+      // This will now use the refreshed token from backgroundAuth
       try {
         const generalRoom = await chatStore.fetchGeneralRoom()
         if (generalRoom?.id) {
@@ -8951,19 +8972,6 @@ onMounted(async () => {
       } catch {
         chatStore.setCurrentRoomId(1) // Default to room 1
       }
-    }
-  }
-  
-  // Background authentication - refresh token and check user status BEFORE joining channels
-  // This ensures we have a valid, fresh token before connecting to sockets
-  if (authStore.isAuthenticated) {
-    try {
-      await authStore.backgroundAuth()
-    } catch (error) {
-      // If background auth fails (user banned, etc.), it will handle redirect/logout internally
-      // Don't proceed with channel connections if auth fails
-      console.error('Background auth error:', error)
-      return
     }
   }
   

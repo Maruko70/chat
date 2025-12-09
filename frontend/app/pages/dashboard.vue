@@ -79,56 +79,56 @@
 
       <!-- Content Area -->
       <main class="flex-1 p-6 overflow-y-auto">
-        <!-- Lazy loaded management components -->
+        <!--  loaded management components -->
         <Suspense>
           <template #default>
             <!-- Login Logs Management -->
-            <LazyLoginLogsManagement v-if="selectedMenuItem === 'log'" />
+            <LoginLogsManagement v-if="selectedMenuItem === 'log'" />
             
             <!-- Ban Management -->
-            <LazyBanManagement v-else-if="selectedMenuItem === 'ban'" />
+            <BanManagement v-else-if="selectedMenuItem === 'ban'" />
             
             <!-- Reports Management -->
-            <LazyReportsManagement v-else-if="selectedMenuItem === 'reports'" />
+            <ReportsManagement v-else-if="selectedMenuItem === 'reports'" />
             
             <!-- Subscriptions Management -->
-            <LazySubscriptionsManagement v-else-if="selectedMenuItem === 'subscriptions'" />
+            <SubscriptionsManagement v-else-if="selectedMenuItem === 'subscriptions'" />
             
             <!-- Role Groups Management -->
-            <LazyRoleGroupsManagement v-else-if="selectedMenuItem === 'permissions'" />
+            <RoleGroupsManagement v-else-if="selectedMenuItem === 'permissions'" />
             
             <!-- Symbols Management -->
-            <LazySymbolsManagement v-else-if="selectedMenuItem === 'symbols'" />
+            <SymbolsManagement v-else-if="selectedMenuItem === 'symbols'" />
             
             <!-- Rooms Management -->
-            <LazyRoomsManagement v-else-if="selectedMenuItem === 'rooms'" />
+            <RoomsManagement v-else-if="selectedMenuItem === 'rooms'" />
             
             <!-- Site Management -->
-            <LazySiteManagement v-else-if="selectedMenuItem === 'site'" />
+            <SiteManagement v-else-if="selectedMenuItem === 'site'" />
             
             <!-- Users Management -->
-            <LazyUsersManagement v-else-if="selectedMenuItem === 'members'" />
+            <UsersManagement v-else-if="selectedMenuItem === 'members'" />
             
             <!-- Scheduled Messages Management -->
-            <LazyScheduledMessagesManagement v-else-if="selectedMenuItem === 'messages'" />
+            <ScheduledMessagesManagement v-else-if="selectedMenuItem === 'messages'" />
             
             <!-- Settings Management -->
-            <LazySettingsManagement v-else-if="selectedMenuItem === 'settings'" />
+            <SettingsManagement v-else-if="selectedMenuItem === 'settings'" />
             
             <!-- Membership Designs Management -->
-            <LazyMembershipDesignsManagement v-else-if="selectedMenuItem === 'membership-designs'" />
+            <MembershipDesignsManagement v-else-if="selectedMenuItem === 'membership-designs'" />
             
             <!-- Premium Entry Backgrounds Management -->
-            <LazyPremiumEntryBackgroundsManagement v-else-if="selectedMenuItem === 'premium-entry-backgrounds'" />
+            <PremiumEntryBackgroundsManagement v-else-if="selectedMenuItem === 'premium-entry-backgrounds'" />
             
             <!-- Shortcuts Management -->
-            <LazyShortcutsManagement v-else-if="selectedMenuItem === 'shortcuts'" />
+            <ShortcutsManagement v-else-if="selectedMenuItem === 'shortcuts'" />
             
             <!-- Filter Management -->
-            <LazyFilterManagement v-else-if="selectedMenuItem === 'filter'" />
+            <FilterManagement v-else-if="selectedMenuItem === 'filter'" />
             
             <!-- Violations Management -->
-            <LazyViolationsManagement v-else-if="selectedMenuItem === 'violations'" />
+            <ViolationsManagement v-else-if="selectedMenuItem === 'violations'" />
             
             <!-- Default placeholder for other menu items -->
             <Card v-else>
