@@ -5,6 +5,7 @@ export const useChatStore = defineStore('chat', {
   state: () => ({
     rooms: [] as Room[],
     currentRoom: null as Room | null,
+    currentRoomId: null as number | null,
     messages: [] as Message[],
     activeUsers: [] as User[],
     loading: false,
@@ -39,28 +40,92 @@ export const useChatStore = defineStore('chat', {
 
   actions: {
     async fetchRooms(force = false) {
-      // Try to get from bootstrap cache first
-      if (!force) {
+      // If force refresh, skip cache
+      if (force) {
+        this.loading = true
         try {
-          const { getBootstrap } = await import('~~/app/composables/useBootstrap')
-          const bootstrap = getBootstrap()
-          if (bootstrap?.rooms && bootstrap.rooms.length > 0) {
-            this.rooms = bootstrap.rooms
-            return bootstrap.rooms
+          const { $api } = useNuxtApp()
+          const rooms = await $api('/chat')
+          this.rooms = rooms
+          // Update cache
+          if (import.meta.client) {
+            const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+            const cache = useLocalStorageCache()
+            cache.setCachedData('rooms', rooms, 5 * 60 * 1000) // 5 minutes
           }
-        } catch (e) {
-          // Bootstrap not available, continue with normal fetch
+          return rooms
+        } finally {
+          this.loading = false
         }
       }
 
+      // Try to get from bootstrap cache first
+      try {
+        const { getBootstrap } = await import('~~/app/composables/useBootstrap')
+        const bootstrap = getBootstrap()
+        if (bootstrap?.rooms && bootstrap.rooms.length > 0) {
+          this.rooms = bootstrap.rooms
+          // Also cache it
+          if (import.meta.client) {
+            const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+            const cache = useLocalStorageCache()
+            cache.setCachedData('rooms', bootstrap.rooms, 5 * 60 * 1000)
+          }
+          // Fetch fresh data in background
+          this.fetchRoomsInBackground()
+          return bootstrap.rooms
+        }
+      } catch (e) {
+        // Bootstrap not available, continue with cache/localStorage
+      }
+
+      // Try localStorage cache with background refresh
+      if (import.meta.client) {
+        const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+        const cache = useLocalStorageCache()
+        const cachedRooms = cache.getCachedData<Room[]>('rooms')
+        
+        if (cachedRooms && cachedRooms.length > 0) {
+          // Show cached data immediately
+          this.rooms = cachedRooms
+          // Fetch fresh data in background
+          this.fetchRoomsInBackground()
+          return cachedRooms
+        }
+      }
+
+      // No cache, fetch directly
       this.loading = true
       try {
         const { $api } = useNuxtApp()
         const rooms = await $api('/chat')
         this.rooms = rooms
+        // Cache it
+        if (import.meta.client) {
+          const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+          const cache = useLocalStorageCache()
+          cache.setCachedData('rooms', rooms, 5 * 60 * 1000)
+        }
         return rooms
       } finally {
         this.loading = false
+      }
+    },
+
+    async fetchRoomsInBackground() {
+      try {
+        const { $api } = useNuxtApp()
+        const rooms = await $api('/chat')
+        // Update cache and state silently
+        if (import.meta.client) {
+          const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+          const cache = useLocalStorageCache()
+          cache.setCachedData('rooms', rooms, 5 * 60 * 1000)
+        }
+        this.rooms = rooms
+      } catch (error) {
+        console.error('Error fetching rooms in background:', error)
+        // Keep showing cached data on error
       }
     },
 
@@ -256,6 +321,20 @@ export const useChatStore = defineStore('chat', {
     setCurrentRoom(room: Room | null) {
       // Don't clear messages when switching rooms - keep all messages in store
       this.currentRoom = room
+      this.currentRoomId = room?.id || null
+    },
+
+    setCurrentRoomId(roomId: number | null) {
+      this.currentRoomId = roomId
+      // If we have the room in our rooms list, set it as current
+      if (roomId) {
+        const room = this.rooms.find((r: Room) => r.id === roomId)
+        if (room) {
+          this.currentRoom = room
+        }
+      } else {
+        this.currentRoom = null
+      }
     },
 
     clearMessages() {

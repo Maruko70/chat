@@ -18,7 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\TrustProxies::class,
         ]);
         $middleware->api(append: [
-            \App\Http\Middleware\ObfuscateResponse::class,
+            //\App\Http\Middleware\ObfuscateResponse::class,
         ]);
         $middleware->validateCsrfTokens(except: [
             'api/*',

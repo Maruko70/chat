@@ -158,6 +158,7 @@ class AuthController extends Controller
         return response()->json([
             'user' => $user,
             'token' => $token,
+            'last_edit_time' => $user->updated_at->toISOString(),
         ], 201);
     }
 
@@ -228,6 +229,7 @@ class AuthController extends Controller
         return response()->json([
             'user' => $user,
             'token' => $token,
+            'last_edit_time' => $user->updated_at->toISOString(),
         ]);
     }
 
@@ -328,6 +330,116 @@ class AuthController extends Controller
         return response()->json([
             'user' => $user,
             'token' => $token,
+            'last_edit_time' => $user->updated_at->toISOString(),
+        ]);
+    }
+
+    /**
+     * Validate credentials without logging (for fast login check).
+     */
+    public function validateCredentials(Request $request): JsonResponse
+    {
+        $request->validate([
+            'username' => 'required|string',
+            'password' => 'required',
+        ]);
+
+        $user = User::where('username', $request->username)
+            ->where('is_guest', false)
+            ->first();
+
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'valid' => false,
+            ], 401);
+        }
+
+        // Check if user is banned
+        $bannedUser = BannedUser::where('user_id', $user->id)->active()->first();
+        if ($bannedUser) {
+            return response()->json([
+                'valid' => false,
+                'banned' => true,
+            ], 403);
+        }
+
+        return response()->json([
+            'valid' => true,
+            'last_edit_time' => $user->updated_at->toISOString(),
+        ]);
+    }
+
+    /**
+     * Background authentication - refresh token and check user status.
+     */
+    public function backgroundAuth(Request $request): JsonResponse
+    {
+        $request->validate([
+            'username' => 'required|string',
+            'password' => 'required',
+        ]);
+
+        $user = User::where('username', $request->username)
+            ->where('is_guest', false)
+            ->first();
+
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Invalid credentials',
+            ], 401);
+        }
+
+        // Check if user is banned
+        $bannedUser = BannedUser::where('user_id', $user->id)->active()->first();
+        if ($bannedUser) {
+            // Revoke all tokens
+            $user->tokens()->delete();
+            
+            $message = 'Your account has been banned';
+            if ($bannedUser->reason) {
+                $message .= ': ' . $bannedUser->reason;
+            }
+            if ($bannedUser->ends_at && !$bannedUser->is_permanent) {
+                $message .= ' (Ban expires: ' . $bannedUser->ends_at->format('Y-m-d H:i:s') . ')';
+            }
+            
+            return response()->json([
+                'valid' => false,
+                'banned' => true,
+                'message' => $message,
+                'ban_reason' => $bannedUser->reason,
+                'is_permanent' => $bannedUser->is_permanent,
+                'ends_at' => $bannedUser->ends_at?->toISOString(),
+            ], 403);
+        }
+
+        // Update IP address and country
+        $ipService = new IpGeolocationService();
+        $ipAddress = $ipService->getClientIp($request);
+        $countryData = $ipService->getCountryDataFromIp($ipAddress);
+        $country = $countryData['country'];
+        $countryCode = $countryData['countryCode'];
+        $countryFlag = $countryCode ? $ipService->countryCodeToFlag($countryCode) : null;
+
+        $user->update([
+            'ip_address' => $ipAddress,
+            'country' => $country,
+            'country_code' => $countryCode,
+            'country_flag' => $countryFlag,
+        ]);
+
+        // Create new token
+        $token = $user->createToken('auth_token')->plainTextToken;
+        
+        // Load media relationship for avatar_url and role groups
+        $user->load('media', 'roleGroups');
+
+        return response()->json([
+            'valid' => true,
+            'user' => $user,
+            'token' => $token,
+            'last_edit_time' => $user->updated_at->toISOString(),
         ]);
     }
 

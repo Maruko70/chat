@@ -2990,7 +2990,6 @@ definePageMeta({
   middleware: 'auth',
 })
 
-const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
@@ -3001,7 +3000,7 @@ const toast = useToast()
 const { getDefaultUserImage, getSystemMessagesImage } = useSiteSettings()
 const { initBootstrap, getBootstrap } = useBootstrap()
 
-const roomId = computed(() => route.params.id as string)
+const roomId = computed(() => chatStore.currentRoomId?.toString() || '')
 const messageContent = ref('')
 const sending = ref(false)
 const messagesContainer = ref<HTMLElement | null>(null)
@@ -6081,22 +6080,49 @@ const sendPrivateMessageWithImage = async () => {
 const loadingWallPosts = ref(false)
 const postingToWall = ref(false)
 
-const fetchWallPosts = async () => {
+const fetchWallPosts = async (force = false) => {
   if (!roomId.value) return
   
+  // Try localStorage cache with background refresh
+  if (!force && import.meta.client) {
+    const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+    const cache = useLocalStorageCache()
+    const cacheKey = `wall_posts_${roomId.value}`
+    const cachedPosts = cache.getCachedData<any[]>(cacheKey)
+    
+    if (cachedPosts && cachedPosts.length >= 0) {
+      // Show cached data immediately
+      wallPosts.value = cachedPosts
+      // Fetch fresh data in background
+      fetchWallPostsInBackground()
+      return
+    }
+  }
+  
+  // No cache or force refresh, fetch directly
   loadingWallPosts.value = true
   try {
     const { api } = useApi()
     const response = await api(`/chat/${roomId.value}/wall-posts`)
     // Handle paginated response
-    wallPosts.value = response.data || response || []
+    const posts = response.data || response || []
     
     // Add image URLs to posts
-    wallPosts.value.forEach((post: any) => {
+    posts.forEach((post: any) => {
       if (post.image) {
         post.image_url = post.image.startsWith('http') ? post.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${post.image}`
       }
     })
+    
+    wallPosts.value = posts
+    
+    // Cache it
+    if (import.meta.client && roomId.value) {
+      const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+      const cache = useLocalStorageCache()
+      const cacheKey = `wall_posts_${roomId.value}`
+      cache.setCachedData(cacheKey, posts, 5 * 60 * 1000) // 5 minutes
+    }
     
     // Fetch wall creator
     await fetchWallCreator()
@@ -6110,6 +6136,38 @@ const fetchWallPosts = async () => {
     })
   } finally {
     loadingWallPosts.value = false
+  }
+}
+
+const fetchWallPostsInBackground = async () => {
+  if (!roomId.value) return
+  
+  try {
+    const { api } = useApi()
+    const response = await api(`/chat/${roomId.value}/wall-posts`)
+    const posts = response.data || response || []
+    
+    // Add image URLs to posts
+    posts.forEach((post: any) => {
+      if (post.image) {
+        post.image_url = post.image.startsWith('http') ? post.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${post.image}`
+      }
+    })
+    
+    // Update cache and state silently
+    if (import.meta.client && roomId.value) {
+      const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+      const cache = useLocalStorageCache()
+      const cacheKey = `wall_posts_${roomId.value}`
+      cache.setCachedData(cacheKey, posts, 5 * 60 * 1000)
+    }
+    
+    wallPosts.value = posts
+    // Fetch wall creator in background
+    await fetchWallCreator()
+  } catch (error) {
+    console.error('Error fetching wall posts in background:', error)
+    // Keep showing cached data on error
   }
 }
 
@@ -6150,6 +6208,13 @@ const postToWall = async () => {
     const existingPost = wallPosts.value.find((p: any) => p.id === newPost.id)
     if (!existingPost) {
       wallPosts.value.unshift(newPost)
+      // Update cache with new post
+      if (import.meta.client && roomId.value) {
+        const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+        const cache = useLocalStorageCache()
+        const cacheKey = `wall_posts_${roomId.value}`
+        cache.setCachedData(cacheKey, wallPosts.value, 5 * 60 * 1000)
+      }
     }
     
     // Reset form
@@ -6791,70 +6856,16 @@ let statusUpdateTimeout: ReturnType<typeof setTimeout> | null = null
 const pendingStatusUpdate = ref<{ userId: number; status: UserStatus; lastActivity: number | null } | null>(null)
 
 const setUserConnectionStatus = (userId: number, status: UserStatus) => {
+  // Only update local state - status updates happen via socket events only
+  // No HTTP PUT requests - all status updates are handled through socket
   userConnectionStatus.value = {
     ...userConnectionStatus.value,
     [userId]: status,
   }
   
-  // If this is the current user, update status in backend
-  if (userId === authStore.user?.id) {
-    const lastActivity = currentUserLastActivity.value
-    
-    // Clear existing timeout if any
-    if (statusUpdateTimeout) {
-      clearTimeout(statusUpdateTimeout)
-      statusUpdateTimeout = null
-    }
-    
-    // Set pending update
-    pendingStatusUpdate.value = {
-      userId,
-      status,
-      lastActivity,
-    }
-    
-    // If status is "active", send immediately (no debounce)
-    // Other statuses are debounced to reduce API calls
-    if (status === 'active') {
-      // Send immediately for active status
-      ;(async () => {
-        try {
-          const { $api } = useNuxtApp()
-          await ($api as any)('/user-status', {
-            method: 'PUT',
-            body: {
-              status: status,
-              last_activity: lastActivity,
-            },
-          })
-
-          pendingStatusUpdate.value = null
-        } catch (error) {
-          console.error('Error saving active status to backend:', error)
-        }
-      })()
-    } else {
-      // Debounce other statuses: wait 5 seconds before sending update (reduces API calls)
-      statusUpdateTimeout = setTimeout(async () => {
-        if (pendingStatusUpdate.value && authStore.user?.id) {
-          try {
-            const { $api } = useNuxtApp()
-            await ($api as any)('/user-status', {
-              method: 'PUT',
-              body: {
-                status: pendingStatusUpdate.value.status,
-                last_activity: pendingStatusUpdate.value.lastActivity,
-              },
-            })
-
-            pendingStatusUpdate.value = null
-          } catch (error) {
-            console.error('Error saving status to backend:', error)
-          }
-        }
-      }, 5000) // 5 second debounce for non-active statuses
-    }
-  }
+  // Status updates are now handled via socket events only
+  // The backend receives status updates through presence channel whispers
+  // No need for HTTP PUT requests
 }
 
 const markUserActiveOnSocket = (userId: number) => {
@@ -7215,9 +7226,9 @@ const startPingPong = (channel: any) => {
   }, 30000) // Ping every 30 seconds
   
   // Status check every 1 minute (60000ms)
-  statusCheckInterval = setInterval(() => {
-    updateAllUsersStatus()
-  }, 60000) // Check every 1 minute
+  // Status updates now come ONLY via socket events (user.status.updated)
+  // Removed periodic PUT requests - status is updated via socket only
+  // statusCheckInterval removed - no more PUT requests every minute
 }
 
 // Stop ping/pong when leaving channel
@@ -7980,9 +7991,8 @@ const navigateToRoom = async (id: number) => {
   // Reset password validation flag for new room
   isPasswordValidated.value = false
   
-  // Update route - router.replace won't cause a full page reload in Nuxt
-  // The route change will trigger the watch on roomId to handle channel switching
-  await router.replace(`/chat/${id}`)
+  // Update room ID - this will trigger the watch on roomId to handle channel switching
+  chatStore.setCurrentRoomId(id)
 }
 
 // Password dialog handlers
@@ -8024,9 +8034,9 @@ const submitRoomPassword = async () => {
     const targetId = passwordProtectedRoomId.value
     passwordProtectedRoomId.value = null
     
-    // Navigate to the room after password validation
+    // Set room ID after password validation
     // The watch handler will now proceed since password dialog is closed and validated
-    await router.replace(`/chat/${targetId}`)
+    chatStore.setCurrentRoomId(targetId)
     
     // Room setup will happen in the watch handler after navigation
   } catch (error: any) {
@@ -8047,9 +8057,9 @@ const cancelPasswordDialog = () => {
   passwordProtectedRoomId.value = null
   isPasswordValidated.value = false // Reset validation flag on cancel
   
-  // Stay on current room - redirect back to previous room if available
+  // Stay on current room - set back to previous room if available
   if (previousRoomId) {
-    router.replace(`/chat/${previousRoomId}`)
+    chatStore.setCurrentRoomId(Number(previousRoomId))
   }
   // If no previous room, just close dialog and stay where we are
 }
@@ -8638,6 +8648,14 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
           data.image_url = data.image.startsWith('http') ? data.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${data.image}`
         }
         wallPosts.value.unshift(data)
+        // Update cache with new post (non-blocking)
+        if (import.meta.client && roomId.value) {
+          import('~~/app/composables/useLocalStorageCache').then(({ useLocalStorageCache }) => {
+            const cache = useLocalStorageCache()
+            const cacheKey = `wall_posts_${roomId.value}`
+            cache.setCachedData(cacheKey, wallPosts.value, 5 * 60 * 1000)
+          }).catch(() => {})
+        }
         // Refresh wall creator
         fetchWallCreator()
         
@@ -8924,6 +8942,34 @@ const openWarnings = async () => {
 // Removed saveSettingsOnClose - now using submit button approach
 
 onMounted(async () => {
+  // Initialize room ID if not set - default to room 1 (general room)
+  if (!chatStore.currentRoomId) {
+    // Try to find general room from cached rooms first
+    const cachedRooms = chatStore.displayRooms
+    if (cachedRooms && cachedRooms.length > 0) {
+      const generalRoom = cachedRooms.find((room: Room) => 
+        room.is_public && (room.name?.toLowerCase().includes('general') || room.id === 1)
+      ) || cachedRooms[0]
+      if (generalRoom?.id) {
+        chatStore.setCurrentRoomId(generalRoom.id)
+      } else {
+        chatStore.setCurrentRoomId(1) // Default to room 1
+      }
+    } else {
+      // Fetch general room or default to room 1
+      try {
+        const generalRoom = await chatStore.fetchGeneralRoom()
+        if (generalRoom?.id) {
+          chatStore.setCurrentRoomId(generalRoom.id)
+        } else {
+          chatStore.setCurrentRoomId(1)
+        }
+      } catch {
+        chatStore.setCurrentRoomId(1) // Default to room 1
+      }
+    }
+  }
+  
   // Initialize Echo/socket connection IMMEDIATELY (FIRST THING - before ANY other operations)
   // This ensures socket connects as fast as possible
   if (authStore.isAuthenticated && authStore.token) {
@@ -9012,8 +9058,7 @@ onMounted(async () => {
   }, 120000) // Update every 2 minutes
 
   // Local AFK detection based purely on socket activity timestamps
-  // Old AFK check removed - now handled by statusCheckInterval in startPingPong
-  // Status updates happen every 1 minute via updateAllUsersStatus()
+  // Status updates happen ONLY via socket events - no periodic HTTP requests
 
   // Load user profile data
   if (authStore.user) {
@@ -9037,17 +9082,37 @@ onMounted(async () => {
     // Focus on message input immediately after room is loaded
     focusMessageInput()
     
+    // Background authentication - refresh token and check user status
+    // This runs in the background without blocking the UI
+    authStore.backgroundAuth().catch((error) => {
+      // Silently handle errors - don't interrupt user experience
+      console.error('Background auth error:', error)
+    })
+    
+    // Load bootstrap data first (synchronously from cache, then async refresh)
+    // This ensures we show cached data immediately
+    const bootstrap = getBootstrap()
+    if (bootstrap) {
+      // Apply cached bootstrap data immediately
+      const { loadFromBootstrap } = useSiteSettings()
+      loadFromBootstrap(bootstrap.site_settings)
+      
+      if (bootstrap.rooms && bootstrap.rooms.length > 0) {
+        chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
+      }
+    }
+    
     // Load all other data in parallel (non-blocking)
     Promise.allSettled([
-      // Bootstrap data (site settings, rooms, shortcuts)
+      // Bootstrap data (site settings, rooms) - refresh with fresh data
       initBootstrap().then(() => {
-        const bootstrap = getBootstrap()
-        if (bootstrap) {
+        const freshBootstrap = getBootstrap()
+        if (freshBootstrap) {
           const { loadFromBootstrap } = useSiteSettings()
-          loadFromBootstrap(bootstrap.site_settings)
+          loadFromBootstrap(freshBootstrap.site_settings)
           
-          if (bootstrap.rooms && bootstrap.rooms.length > 0) {
-            chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
+          if (freshBootstrap.rooms && freshBootstrap.rooms.length > 0) {
+            chatStore.loadRoomsFromBootstrap(freshBootstrap.rooms)
           }
         }
       }).catch((error) => {
@@ -9091,12 +9156,12 @@ onMounted(async () => {
       showPasswordDialog.value = true
       isPasswordValidated.value = false // Reset validation flag
       chatStore.loading = false
-      // Redirect back to previous room if available, otherwise stay on current route
+      // Set back to previous room if available, otherwise stay on current room
       if (previousRoomId) {
-        await router.replace(`/chat/${previousRoomId}`)
+        chatStore.setCurrentRoomId(Number(previousRoomId))
       } else if (chatStore.currentRoom?.id) {
-        // If we have a current room, redirect to it
-        await router.replace(`/chat/${chatStore.currentRoom.id}`)
+        // If we have a current room, set it
+        chatStore.setCurrentRoomId(chatStore.currentRoom.id)
       }
       return
     }
@@ -9230,8 +9295,8 @@ onMounted(async () => {
           }
           
           // When socket reconnects, treat network as restored:
-          // recalculate status for all users (they'll be set to appropriate status based on activity)
-          updateAllUsersStatus()
+          // Status will be updated via socket events - no need to recalculate via HTTP
+          // updateAllUsersStatus() removed - status updates via socket only
           
           // Add connection message (only if not manually disconnected)
           if (!isManualDisconnect.value) {
@@ -9640,9 +9705,9 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
       passwordProtectedRoomName.value = error.data?.room_name || 'الغرفة'
       showPasswordDialog.value = true
       isPasswordValidated.value = false // Reset validation flag
-      // Redirect back to previous room to stay on current room
+      // Set back to previous room to stay on current room
       if (oldRoomId) {
-        await router.replace(`/chat/${oldRoomId}`)
+        chatStore.setCurrentRoomId(Number(oldRoomId))
       }
       // Don't proceed with room setup if password is required
       return

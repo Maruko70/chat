@@ -845,10 +845,20 @@ const saveBasicInfo = async () => {
       is_guest: userForm.value.is_guest,
     }
 
+    const oldUsername = editingUser.value.username
+    
     await $api(`/users/${editingUser.value.id}`, {
       method: 'PUT',
       body: payload,
     })
+    
+    // Update last edit time in auth store if username changed and this is the current user
+    const authStore = useAuthStore()
+    if (authStore.user && authStore.user.id === editingUser.value.id) {
+      if (oldUsername !== userForm.value.username.trim()) {
+        authStore.updateLastEditTime()
+      }
+    }
     
     toast.add({
       severity: 'success',
@@ -896,6 +906,12 @@ const savePassword = async () => {
         password: userForm.value.password.trim(),
       },
     })
+    
+    // Update last edit time in auth store if this is the current user
+    const authStore = useAuthStore()
+    if (authStore.user && authStore.user.id === editingUser.value.id) {
+      authStore.updateLastEditTime()
+    }
     
     toast.add({
       severity: 'success',

@@ -43,6 +43,8 @@ use Illuminate\Support\Facades\Route;
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/guest-login', [AuthController::class, 'guestLogin']);
+Route::post('/validate-credentials', [AuthController::class, 'validateCredentials']);
+Route::post('/background-auth', [AuthController::class, 'backgroundAuth']);
 
 // Public room routes (for home page)
 Route::get('/chat', [RoomController::class, 'index']);

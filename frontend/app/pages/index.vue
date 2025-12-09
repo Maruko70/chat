@@ -79,7 +79,7 @@
                         <div class="flex gap-2">
                           <InputText v-model="guestForm.username" type="text" placeholder="اسم المستخدم"
                             class="flex-1 text-xs " size="small" />
-                          <Button type="submit" label="دخول كزائر"  size="small" :loading="guestLoading"
+                          <Button type="submit" label="دخول كزائر"  size="small"
                             class="w-28 md:w-36 text-xs btn-styled border-0 flex-shrink-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
                         </div>
                       </form>
@@ -99,7 +99,7 @@
                               <i :class="showPassword ? 'pi pi-eye-slash' : 'pi pi-eye'"></i>
                             </button>
                           </div>
-                          <Button type="submit" label="دخول" size="small" :loading="loginLoading"
+                          <Button type="submit" label="دخول" size="small"
                             class="w-28 text-xs btn-styled border-0 flex-shrink-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
                         </div>
                       </form>
@@ -113,7 +113,7 @@
                             class="w-32 md:w-36 text-xs " size="small" />
                           <InputText v-model="registerForm.password" type="password" placeholder="كلمة المرور"
                             class="w-32 md:w-36 text-xs " size="small" />
-                          <Button type="submit" label="تسجيل" size="small" :loading="registerLoading"
+                          <Button type="submit" label="تسجيل" size="small"
                             class="w-28 text-xs btn-styled border-0 flex-shrink-0" :style="{ backgroundColor: 'var(--site-primary-color, #450924) !important', border: 'none !important' }" />
                         </div>
                       </form>
@@ -303,20 +303,16 @@ const loginForm = ref({
   username: '',
   password: '',
 })
-const loginLoading = ref(false)
-
 // Register form
 const registerForm = ref({
   username: '',
   password: '',
 })
-const registerLoading = ref(false)
 
 // Guest form
 const guestForm = ref({
   username: '',
 })
-const guestLoading = ref(false)
 
 const showPassword = ref(false)
 
@@ -326,57 +322,89 @@ const onlineCount = computed(() => {
   return displayActiveUsers.value.length
 })
 
-const handleLogin = async () => {
-  loginLoading.value = true
-
-  try {
-    await authStore.login(loginForm.value.username, loginForm.value.password)
-    
-    // Navigate IMMEDIATELY to general room (ID is always 1)
-    loginLoading.value = false
-    router.push('/chat/1')
-  } catch (err: any) {
-    loginLoading.value = false
-    await nextTick()
-    const errorMessage = err?.data?.message || err?.message || 'فشل تسجيل الدخول. يرجى التحقق من بيانات الاعتماد.'
-    showMessage('error', 'خطأ في تسجيل الدخول', errorMessage)
+const handleLogin = () => {
+  const username = loginForm.value.username
+  const password = loginForm.value.password
+  
+  // Try instant login from cache - navigate immediately if successful
+  const instantLogin = authStore.instantLoginFromCache(username, password)
+  
+  // Navigate IMMEDIATELY without waiting (no loading indicator)
+  router.push('/chat')
+  chatStore.setCurrentRoomId(1)
+  
+  if (instantLogin) {
+    // Cache exists - authenticate in background to refresh token and validate
+    authStore.login(username, password, true).catch(async (err: any) => {
+      // Authentication failed - clear auth and redirect back
+      authStore.clearAuth()
+      router.push('/')
+      await nextTick()
+      const errorMessage = err?.data?.message || err?.message || 'فشل تسجيل الدخول. يرجى التحقق من بيانات الاعتماد.'
+      showMessage('error', 'خطأ في تسجيل الدخول', errorMessage)
+    })
+  } else {
+    // No cache - authenticate immediately in background
+    authStore.login(username, password, true).catch(async (err: any) => {
+      // Authentication failed - clear auth and redirect back
+      authStore.clearAuth()
+      router.push('/')
+      await nextTick()
+      const errorMessage = err?.data?.message || err?.message || 'فشل تسجيل الدخول. يرجى التحقق من بيانات الاعتماد.'
+      showMessage('error', 'خطأ في تسجيل الدخول', errorMessage)
+    })
   }
 }
 
-const handleRegister = async () => {
-  registerLoading.value = true
-
-  try {
-    await authStore.register(
-      registerForm.value.username,
-      registerForm.value.password
-    )
-    
-    // Navigate IMMEDIATELY to general room (ID is always 1)
-    registerLoading.value = false
-    router.push('/chat/1')
-  } catch (err: any) {
-    registerLoading.value = false
+const handleRegister = () => {
+  const username = registerForm.value.username
+  const password = registerForm.value.password
+  
+  // Navigate IMMEDIATELY without waiting (no loading indicator)
+  router.push('/chat')
+  chatStore.setCurrentRoomId(1)
+  
+  // Register in background
+  authStore.register(username, password).catch(async (err: any) => {
+    // Registration failed - clear auth and redirect back
+    authStore.clearAuth()
+    router.push('/')
     await nextTick()
     const errorMessage = err?.data?.message || err?.message || 'فشل التسجيل. يرجى المحاولة مرة أخرى.'
     showMessage('error', 'خطأ في التسجيل', errorMessage)
-  }
+  })
 }
 
-const handleGuestLogin = async () => {
-  guestLoading.value = true
-
-  try {
-    await authStore.guestLogin(guestForm.value.username)
-    
-    // Navigate IMMEDIATELY to general room (ID is always 1)
-    guestLoading.value = false
-    router.push('/chat/1')
-  } catch (err: any) {
-    guestLoading.value = false
-    await nextTick()
-    const errorMessage = err?.data?.message || err?.message || 'فشل دخول الزوار. يرجى المحاولة مرة أخرى.'
-    showMessage('error', 'خطأ في دخول الزوار', errorMessage)
+const handleGuestLogin = () => {
+  const username = guestForm.value.username
+  
+  // Try instant guest login from cache
+  const instantLogin = authStore.instantGuestLoginFromCache(username)
+  
+  // Navigate IMMEDIATELY without waiting (no loading indicator)
+  router.push('/chat')
+  chatStore.setCurrentRoomId(1)
+  
+  if (instantLogin) {
+    // Cache exists - authenticate in background to refresh token and validate
+    authStore.guestLogin(username, true).catch(async (err: any) => {
+      // Authentication failed - clear auth and redirect back
+      authStore.clearAuth()
+      router.push('/')
+      await nextTick()
+      const errorMessage = err?.data?.message || err?.message || 'فشل دخول الزوار. يرجى المحاولة مرة أخرى.'
+      showMessage('error', 'خطأ في دخول الزوار', errorMessage)
+    })
+  } else {
+    // No cache - authenticate immediately in background
+    authStore.guestLogin(username, true).catch(async (err: any) => {
+      // Authentication failed - clear auth and redirect back
+      authStore.clearAuth()
+      router.push('/')
+      await nextTick()
+      const errorMessage = err?.data?.message || err?.message || 'فشل دخول الزوار. يرجى المحاولة مرة أخرى.'
+      showMessage('error', 'خطأ في دخول الزوار', errorMessage)
+    })
   }
 }
 

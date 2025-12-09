@@ -31,18 +31,79 @@ export const usePrivateMessagesStore = defineStore('privateMessages', {
   },
 
   actions: {
-    async fetchConversations() {
+    async fetchConversations(force = false) {
+      // If force refresh, skip cache
+      if (force) {
+        this.loading = true
+        try {
+          const { $api } = useNuxtApp()
+          const conversations = await $api('/private-messages')
+          this.conversations = conversations
+          // Update cache
+          if (import.meta.client) {
+            const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+            const cache = useLocalStorageCache()
+            cache.setCachedData('private_conversations', conversations, 2 * 60 * 1000) // 2 minutes
+          }
+          return conversations
+        } catch (error) {
+          console.error('Error fetching conversations:', error)
+          throw error
+        } finally {
+          this.loading = false
+        }
+      }
+
+      // Try localStorage cache with background refresh
+      if (import.meta.client) {
+        const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+        const cache = useLocalStorageCache()
+        const cachedConversations = cache.getCachedData<Conversation[]>('private_conversations')
+        
+        if (cachedConversations && cachedConversations.length >= 0) {
+          // Show cached data immediately (even if empty array)
+          this.conversations = cachedConversations
+          // Fetch fresh data in background
+          this.fetchConversationsInBackground()
+          return cachedConversations
+        }
+      }
+
+      // No cache, fetch directly
       this.loading = true
       try {
         const { $api } = useNuxtApp()
         const conversations = await $api('/private-messages')
         this.conversations = conversations
+        // Cache it
+        if (import.meta.client) {
+          const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+          const cache = useLocalStorageCache()
+          cache.setCachedData('private_conversations', conversations, 2 * 60 * 1000)
+        }
         return conversations
       } catch (error) {
         console.error('Error fetching conversations:', error)
         throw error
       } finally {
         this.loading = false
+      }
+    },
+
+    async fetchConversationsInBackground() {
+      try {
+        const { $api } = useNuxtApp()
+        const conversations = await $api('/private-messages')
+        // Update cache and state silently
+        if (import.meta.client) {
+          const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
+          const cache = useLocalStorageCache()
+          cache.setCachedData('private_conversations', conversations, 2 * 60 * 1000)
+        }
+        this.conversations = conversations
+      } catch (error) {
+        console.error('Error fetching conversations in background:', error)
+        // Keep showing cached data on error
       }
     },
 

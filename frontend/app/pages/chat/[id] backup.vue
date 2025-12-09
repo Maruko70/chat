@@ -4679,28 +4679,14 @@ const fetchRoomsList = async () => {
 // Watch for sidebar opening to fetch rooms
 watch(showWall, (isOpen) => {
   if (isOpen && roomId.value) {
-    // For room 1 (general room), check if we already have data from bootstrap
-    if (roomId.value === '1' && wallPosts.value.length > 0 && wallCreator.value) {
-      // Already have data from bootstrap, no need to fetch
-      // Clear notification when wall is opened
-      if (hasNewWallPost.value) {
-        hasNewWallPost.value = false
-        if (newWallPostTimeout) {
-          clearTimeout(newWallPostTimeout)
-          newWallPostTimeout = null
-        }
-      }
-    } else {
-      // Fetch wall posts for this room (or refresh if needed)
-      fetchWallPosts()
-      fetchWallCreator()
-      // Clear notification when wall is opened
-      if (hasNewWallPost.value) {
-        hasNewWallPost.value = false
-        if (newWallPostTimeout) {
-          clearTimeout(newWallPostTimeout)
-          newWallPostTimeout = null
-        }
+    fetchWallPosts()
+    fetchWallCreator()
+    // Clear notification when wall is opened
+    if (hasNewWallPost.value) {
+      hasNewWallPost.value = false
+      if (newWallPostTimeout) {
+        clearTimeout(newWallPostTimeout)
+        newWallPostTimeout = null
       }
     }
   }
@@ -6094,49 +6080,22 @@ const sendPrivateMessageWithImage = async () => {
 const loadingWallPosts = ref(false)
 const postingToWall = ref(false)
 
-const fetchWallPosts = async (force = false) => {
+const fetchWallPosts = async () => {
   if (!roomId.value) return
   
-  // Try localStorage cache with background refresh
-  if (!force && import.meta.client) {
-    const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
-    const cache = useLocalStorageCache()
-    const cacheKey = `wall_posts_${roomId.value}`
-    const cachedPosts = cache.getCachedData<any[]>(cacheKey)
-    
-    if (cachedPosts && cachedPosts.length >= 0) {
-      // Show cached data immediately
-      wallPosts.value = cachedPosts
-      // Fetch fresh data in background
-      fetchWallPostsInBackground()
-      return
-    }
-  }
-  
-  // No cache or force refresh, fetch directly
   loadingWallPosts.value = true
   try {
     const { api } = useApi()
     const response = await api(`/chat/${roomId.value}/wall-posts`)
     // Handle paginated response
-    const posts = response.data || response || []
+    wallPosts.value = response.data || response || []
     
     // Add image URLs to posts
-    posts.forEach((post: any) => {
+    wallPosts.value.forEach((post: any) => {
       if (post.image) {
         post.image_url = post.image.startsWith('http') ? post.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${post.image}`
       }
     })
-    
-    wallPosts.value = posts
-    
-    // Cache it
-    if (import.meta.client && roomId.value) {
-      const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
-      const cache = useLocalStorageCache()
-      const cacheKey = `wall_posts_${roomId.value}`
-      cache.setCachedData(cacheKey, posts, 5 * 60 * 1000) // 5 minutes
-    }
     
     // Fetch wall creator
     await fetchWallCreator()
@@ -6150,38 +6109,6 @@ const fetchWallPosts = async (force = false) => {
     })
   } finally {
     loadingWallPosts.value = false
-  }
-}
-
-const fetchWallPostsInBackground = async () => {
-  if (!roomId.value) return
-  
-  try {
-    const { api } = useApi()
-    const response = await api(`/chat/${roomId.value}/wall-posts`)
-    const posts = response.data || response || []
-    
-    // Add image URLs to posts
-    posts.forEach((post: any) => {
-      if (post.image) {
-        post.image_url = post.image.startsWith('http') ? post.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${post.image}`
-      }
-    })
-    
-    // Update cache and state silently
-    if (import.meta.client && roomId.value) {
-      const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
-      const cache = useLocalStorageCache()
-      const cacheKey = `wall_posts_${roomId.value}`
-      cache.setCachedData(cacheKey, posts, 5 * 60 * 1000)
-    }
-    
-    wallPosts.value = posts
-    // Fetch wall creator in background
-    await fetchWallCreator()
-  } catch (error) {
-    console.error('Error fetching wall posts in background:', error)
-    // Keep showing cached data on error
   }
 }
 
@@ -6222,13 +6149,6 @@ const postToWall = async () => {
     const existingPost = wallPosts.value.find((p: any) => p.id === newPost.id)
     if (!existingPost) {
       wallPosts.value.unshift(newPost)
-      // Update cache with new post
-      if (import.meta.client && roomId.value) {
-        const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
-        const cache = useLocalStorageCache()
-        const cacheKey = `wall_posts_${roomId.value}`
-        cache.setCachedData(cacheKey, wallPosts.value, 5 * 60 * 1000)
-      }
     }
     
     // Reset form
@@ -6870,16 +6790,70 @@ let statusUpdateTimeout: ReturnType<typeof setTimeout> | null = null
 const pendingStatusUpdate = ref<{ userId: number; status: UserStatus; lastActivity: number | null } | null>(null)
 
 const setUserConnectionStatus = (userId: number, status: UserStatus) => {
-  // Only update local state - status updates happen via socket events only
-  // No HTTP PUT requests - all status updates are handled through socket
   userConnectionStatus.value = {
     ...userConnectionStatus.value,
     [userId]: status,
   }
   
-  // Status updates are now handled via socket events only
-  // The backend receives status updates through presence channel whispers
-  // No need for HTTP PUT requests
+  // If this is the current user, update status in backend
+  if (userId === authStore.user?.id) {
+    const lastActivity = currentUserLastActivity.value
+    
+    // Clear existing timeout if any
+    if (statusUpdateTimeout) {
+      clearTimeout(statusUpdateTimeout)
+      statusUpdateTimeout = null
+    }
+    
+    // Set pending update
+    pendingStatusUpdate.value = {
+      userId,
+      status,
+      lastActivity,
+    }
+    
+    // If status is "active", send immediately (no debounce)
+    // Other statuses are debounced to reduce API calls
+    if (status === 'active') {
+      // Send immediately for active status
+      ;(async () => {
+        try {
+          const { $api } = useNuxtApp()
+          await ($api as any)('/user-status', {
+            method: 'PUT',
+            body: {
+              status: status,
+              last_activity: lastActivity,
+            },
+          })
+
+          pendingStatusUpdate.value = null
+        } catch (error) {
+          console.error('Error saving active status to backend:', error)
+        }
+      })()
+    } else {
+      // Debounce other statuses: wait 5 seconds before sending update (reduces API calls)
+      statusUpdateTimeout = setTimeout(async () => {
+        if (pendingStatusUpdate.value && authStore.user?.id) {
+          try {
+            const { $api } = useNuxtApp()
+            await ($api as any)('/user-status', {
+              method: 'PUT',
+              body: {
+                status: pendingStatusUpdate.value.status,
+                last_activity: pendingStatusUpdate.value.lastActivity,
+              },
+            })
+
+            pendingStatusUpdate.value = null
+          } catch (error) {
+            console.error('Error saving status to backend:', error)
+          }
+        }
+      }, 5000) // 5 second debounce for non-active statuses
+    }
+  }
 }
 
 const markUserActiveOnSocket = (userId: number) => {
@@ -7239,10 +7213,10 @@ const startPingPong = (channel: any) => {
     }
   }, 30000) // Ping every 30 seconds
   
-  // Status check every 1 minute (60000ms) - only calculates locally, no API calls
-  // Status updates now come ONLY via socket events (user.status.updated)
-  // Removed periodic PUT requests - status is updated via socket only
-  // statusCheckInterval removed - no more PUT requests every minute
+  // Status check every 1 minute (60000ms)
+  statusCheckInterval = setInterval(() => {
+    updateAllUsersStatus()
+  }, 60000) // Check every 1 minute
 }
 
 // Stop ping/pong when leaving channel
@@ -8225,8 +8199,41 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
       chatStore.currentRoom.users = users
     }
 
-    // User statuses will be updated via socket events (user.status.updated)
-    // No need to fetch via API - status updates come through presence channel
+    // Load statuses from backend in background (non-blocking, don't await)
+    const userIds = users.filter(u => u?.id).map(u => u.id)
+    if (userIds.length > 0) {
+      // Don't await - load in background
+      Promise.resolve().then(async () => {
+        try {
+          const { $api } = useNuxtApp()
+          const statusResponse = await ($api as any)('/user-status/multiple', {
+            method: 'POST',
+            body: {
+              user_ids: userIds,
+            },
+          })
+          
+          // Update statuses from backend response
+          if (statusResponse?.statuses) {
+            Object.entries(statusResponse.statuses).forEach(([userId, statusData]: [string, any]) => {
+              const uid = parseInt(userId)
+              if (statusData.last_activity) {
+                userLastActivity.value = {
+                  ...userLastActivity.value,
+                  [uid]: statusData.last_activity,
+                }
+              }
+              if (statusData.status) {
+                setUserConnectionStatus(uid, statusData.status)
+              }
+            })
+          }
+        } catch (error) {
+          console.warn('Failed to load user statuses from backend:', error)
+          // Continue with local calculation as fallback
+        }
+      })
+    }
 
     // Initialize status for all users currently in room
     users.forEach((u: any) => {
@@ -8629,14 +8636,6 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
           data.image_url = data.image.startsWith('http') ? data.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${data.image}`
         }
         wallPosts.value.unshift(data)
-        // Update cache with new post (non-blocking)
-        if (import.meta.client && roomId.value) {
-          import('~~/app/composables/useLocalStorageCache').then(({ useLocalStorageCache }) => {
-            const cache = useLocalStorageCache()
-            const cacheKey = `wall_posts_${roomId.value}`
-            cache.setCachedData(cacheKey, wallPosts.value, 5 * 60 * 1000)
-          }).catch(() => {})
-        }
         // Refresh wall creator
         fetchWallCreator()
         
@@ -8951,21 +8950,8 @@ onMounted(async () => {
     }
   }
   
-  // Background authentication - refresh token and check user status BEFORE joining channels
-  // This ensures we have a valid, fresh token before connecting to sockets
-  if (authStore.isAuthenticated) {
-    try {
-      await authStore.backgroundAuth()
-    } catch (error) {
-      // If background auth fails (user banned, etc.), it will handle redirect/logout internally
-      // Don't proceed with channel connections if auth fails
-      console.error('Background auth error:', error)
-      return
-    }
-  }
-  
-  // Initialize Echo/socket connection AFTER authentication is complete
-  // This ensures socket connects with a valid, fresh token
+  // Initialize Echo/socket connection IMMEDIATELY (FIRST THING - before ANY other operations)
+  // This ensures socket connects as fast as possible
   if (authStore.isAuthenticated && authStore.token) {
     // Ensure Echo is initialized (plugin might have done it, but ensure it's ready)
     initEcho()
@@ -8989,7 +8975,6 @@ onMounted(async () => {
       }
       
       // Subscribe to global presence channel immediately
-      // Socket listeners for user.status.updated will be set up in the subscribed callback
       if (!globalPresenceChannel) {
         globalPresenceChannel = echo.join('presence')
       }
@@ -9034,7 +9019,12 @@ onMounted(async () => {
     emojiList.value = []
   })
 
-  // Profile, stories, active users, unread count, and wall posts will be loaded from bootstrap
+  // Fetch settings from API (non-blocking, parallel)
+  if (authStore.isAuthenticated) {
+    settingsStore.fetchFromAPI().catch((error) => {
+      console.error('Error fetching settings:', error)
+    })
+  }
 
   // Set up time interval for relative time updates
   timeInterval = setInterval(() => {
@@ -9048,7 +9038,8 @@ onMounted(async () => {
   }, 120000) // Update every 2 minutes
 
   // Local AFK detection based purely on socket activity timestamps
-  // Status updates happen ONLY via socket events - no periodic HTTP requests
+  // Old AFK check removed - now handled by statusCheckInterval in startPingPong
+  // Status updates happen every 1 minute via updateAllUsersStatus()
 
   // Load user profile data
   if (authStore.user) {
@@ -9072,158 +9063,57 @@ onMounted(async () => {
     // Focus on message input immediately after room is loaded
     focusMessageInput()
     
-    // Load bootstrap data first (synchronously from cache, then async refresh)
-    // This ensures we show cached data immediately
-    const bootstrap = getBootstrap()
-    if (bootstrap) {
-      // Apply cached bootstrap data immediately
-      const { loadFromBootstrap } = useSiteSettings()
-      loadFromBootstrap(bootstrap.site_settings)
-      
-      if (bootstrap.rooms && bootstrap.rooms.length > 0) {
-        chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
-      }
-      
-      // Load profile data from bootstrap
-      if (authStore.isAuthenticated && bootstrap.profile) {
-        settingsStore.loadFromUser(bootstrap.profile)
-        // Update auth store user as well
-        if (authStore.user) {
-          authStore.user = bootstrap.profile
-        }
-      }
-      
-      // Load stories from bootstrap
-      if (bootstrap.stories && Array.isArray(bootstrap.stories)) {
-        usersWithStories.value = bootstrap.stories.map((item: any) => ({
-          user: {
-            id: item.user.id,
-            name: item.user.name,
-            username: item.user.username,
-            avatar_url: item.user.avatar_url,
-          },
-          stories: item.stories || [],
-          has_unviewed: Boolean(item.has_unviewed),
-        }))
-      }
-      
-      // Load active users from bootstrap
-      if (bootstrap.active_users && Array.isArray(bootstrap.active_users)) {
-        // Mark users as active on socket
-        bootstrap.active_users.forEach((u: User) => {
-          if (u && typeof u.id === 'number') {
-            markUserActiveOnSocket(u.id)
-          }
-        })
-      }
-      
-      // Load unread count from bootstrap
-      if (typeof bootstrap.unread_count === 'number') {
-        privateMessagesStore.unreadCount = bootstrap.unread_count
-      }
-      
-      // Load wall posts and creator from bootstrap (only for general room - room 1)
-      if (roomId.value === '1' && bootstrap.wall_posts && Array.isArray(bootstrap.wall_posts)) {
-        wallPosts.value = bootstrap.wall_posts.map((post: any) => {
-          // Ensure image_url is set
-          if (post.image && !post.image_url) {
-            post.image_url = post.image.startsWith('http') 
-              ? post.image 
-              : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${post.image}`
-          }
-          return post
-        })
-        
-        // Load wall creator
-        if (bootstrap.wall_creator) {
-          wallCreator.value = bootstrap.wall_creator.wall_creator
-          topCreators.value = bootstrap.wall_creator.top_creators || []
-        }
-      }
-    }
+    // Background authentication - refresh token and check user status
+    // This runs in the background without blocking the UI
+    authStore.backgroundAuth().catch((error) => {
+      // Silently handle errors - don't interrupt user experience
+      console.error('Background auth error:', error)
+    })
     
     // Load all other data in parallel (non-blocking)
     Promise.allSettled([
-      // Bootstrap data (site settings, rooms, profile, stories, active users, unread count, wall posts)
+      // Bootstrap data (site settings, rooms)
       initBootstrap().then(() => {
-        const freshBootstrap = getBootstrap()
-        if (freshBootstrap) {
+        const bootstrap = getBootstrap()
+        if (bootstrap) {
           const { loadFromBootstrap } = useSiteSettings()
-          loadFromBootstrap(freshBootstrap.site_settings)
+          loadFromBootstrap(bootstrap.site_settings)
           
-          if (freshBootstrap.rooms && freshBootstrap.rooms.length > 0) {
-            chatStore.loadRoomsFromBootstrap(freshBootstrap.rooms)
-          }
-          
-          // Load profile data from bootstrap
-          if (authStore.isAuthenticated && freshBootstrap.profile) {
-            settingsStore.loadFromUser(freshBootstrap.profile)
-            // Update auth store user as well
-            if (authStore.user) {
-              authStore.user = freshBootstrap.profile
-            }
-          }
-          
-          // Load stories from bootstrap
-          if (freshBootstrap.stories && Array.isArray(freshBootstrap.stories)) {
-            usersWithStories.value = freshBootstrap.stories.map((item: any) => ({
-              user: {
-                id: item.user.id,
-                name: item.user.name,
-                username: item.user.username,
-                avatar_url: item.user.avatar_url,
-              },
-              stories: item.stories || [],
-              has_unviewed: Boolean(item.has_unviewed),
-            }))
-          }
-          
-          // Load active users from bootstrap
-          if (freshBootstrap.active_users && Array.isArray(freshBootstrap.active_users)) {
-            chatStore.activeUsers = freshBootstrap.active_users
-            // Mark users as active on socket
-            freshBootstrap.active_users.forEach((u: User) => {
-              if (u && typeof u.id === 'number') {
-                markUserActiveOnSocket(u.id)
-              }
-            })
-          }
-          
-          // Load unread count from bootstrap
-          if (typeof freshBootstrap.unread_count === 'number') {
-            privateMessagesStore.unreadCount = freshBootstrap.unread_count
-          }
-          
-          // Load wall posts and creator from bootstrap (only for general room - room 1)
-          if (roomId.value === '1' && freshBootstrap.wall_posts && Array.isArray(freshBootstrap.wall_posts)) {
-            wallPosts.value = freshBootstrap.wall_posts.map((post: any) => {
-              // Ensure image_url is set
-              if (post.image && !post.image_url) {
-                post.image_url = post.image.startsWith('http') 
-                  ? post.image 
-                  : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${post.image}`
-              }
-              return post
-            })
-            
-            // Load wall creator
-            if (freshBootstrap.wall_creator) {
-              wallCreator.value = freshBootstrap.wall_creator.wall_creator
-              topCreators.value = freshBootstrap.wall_creator.top_creators || []
-            }
+          if (bootstrap.rooms && bootstrap.rooms.length > 0) {
+            chatStore.loadRoomsFromBootstrap(bootstrap.rooms)
           }
         }
       }).catch((error) => {
         console.error('Error loading bootstrap data:', error)
-        // Fallback to API calls if bootstrap fails
-        if (authStore.isAuthenticated) {
-          settingsStore.fetchFromAPI().catch(() => {})
-          chatStore.fetchActiveUsers().catch(() => {})
-          privateMessagesStore.fetchUnreadCount().catch(() => {})
-          fetchStories().catch(() => {})
-        }
       }),
-    ])
+      
+      // Active users
+      chatStore.fetchActiveUsers().then(() => {
+        const allActiveUsers = chatStore.displayActiveUsers || []
+        allActiveUsers.forEach((u: User) => {
+          if (u && typeof u.id === 'number') {
+            markUserActiveOnSocket(u.id)
+          }
+        })
+      }).catch((error) => {
+        console.error('Error loading active users:', error)
+      }),
+      
+      // Private messages unread count
+      privateMessagesStore.fetchUnreadCount().catch((error) => {
+        console.error('Error loading private messages unread count:', error)
+      }),
+      
+      // Wall posts
+      fetchWallPosts().catch((error) => {
+        console.error('Error loading wall posts:', error)
+      }),
+    ]).finally(() => {
+      // Load stories AFTER all other work is finished
+      fetchStories().catch((error) => {
+        console.error('Error loading stories:', error)
+      })
+    })
   } catch (error: any) {
 
     
@@ -9256,8 +9146,7 @@ onMounted(async () => {
       detail: error.message || 'فشل تحميل الغرفة',
       life: 3000,
     })
-    // Stay on current page, just clear room if error
-    chatStore.setCurrentRoomId(null)
+    router.push('/chat')
     return
   }
   
@@ -9374,8 +9263,8 @@ onMounted(async () => {
           }
           
           // When socket reconnects, treat network as restored:
-          // Status will be updated via socket events - no need to recalculate via HTTP
-          // updateAllUsersStatus() removed - status updates via socket only
+          // recalculate status for all users (they'll be set to appropriate status based on activity)
+          updateAllUsersStatus()
           
           // Add connection message (only if not manually disconnected)
           if (!isManualDisconnect.value) {
@@ -9771,8 +9660,9 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
     await chatStore.fetchRoom(newRoomId)
     // Password validation successful - reset flag
     isPasswordValidated.value = true
-    // Wall posts will be fetched when user opens wall sidebar (lazy loading)
-
+    // Fetch wall posts for the new room
+    await fetchWallPosts()
+    
     // Focus on message input after switching rooms
     focusMessageInput()
   } catch (error: any) {
@@ -9806,7 +9696,7 @@ watch(() => roomId.value, async (newRoomId, oldRoomId) => {
     })
     // Redirect back to previous room if available
     if (oldRoomId) {
-      chatStore.setCurrentRoomId(Number(oldRoomId))
+      await router.replace(`/chat/${oldRoomId}`)
     }
     return
   }
