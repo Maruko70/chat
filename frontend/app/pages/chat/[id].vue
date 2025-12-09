@@ -460,15 +460,17 @@
           </div>
         </div>
         
-        <!-- Story Viewer -->
-        <StoryViewer
+        <!-- Story Viewer - Lazy loaded -->
+        <LazyStoryViewer
+          v-if="selectedStoryUserId"
           ref="storyViewerRef"
           :user-id="selectedStoryUserId"
           @close="selectedStoryUserId = null"
         />
         
-        <!-- Story Creator -->
-        <StoryCreator
+        <!-- Story Creator - Lazy loaded -->
+        <LazyStoryCreator
+          v-if="showStoryCreator"
           ref="storyCreatorRef"
           @created="handleStoryCreated"
         />
@@ -2780,8 +2782,9 @@
       </template>
     </Dialog>
 
-    <!-- Report User Dialog -->
-    <ReportUserDialog
+    <!-- Report User Dialog - Lazy loaded -->
+    <LazyReportUserDialog
+      v-if="showReportDialog"
       :model-value="showReportDialog"
       @update:model-value="showReportDialog = $event"
       :reported-user="selectedUser"

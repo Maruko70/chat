@@ -79,56 +79,59 @@
 
       <!-- Content Area -->
       <main class="flex-1 p-6 overflow-y-auto">
-        <!-- Login Logs Management -->
-        <LoginLogsManagement v-if="selectedMenuItem === 'log'" />
-        
-        <!-- Ban Management -->
-        <BanManagement v-else-if="selectedMenuItem === 'ban'" />
-        
-        <!-- Reports Management -->
-        <ReportsManagement v-else-if="selectedMenuItem === 'reports'" />
-        
-        <!-- Subscriptions Management -->
-        <SubscriptionsManagement v-else-if="selectedMenuItem === 'subscriptions'" />
-        
-        <!-- Role Groups Management -->
-        <RoleGroupsManagement v-else-if="selectedMenuItem === 'permissions'" />
-        
-        <!-- Symbols Management -->
-        <SymbolsManagement v-else-if="selectedMenuItem === 'symbols'" />
-        
-        <!-- Rooms Management -->
-        <RoomsManagement v-else-if="selectedMenuItem === 'rooms'" />
-        
-        <!-- Site Management -->
-        <SiteManagement v-else-if="selectedMenuItem === 'site'" />
-        
-        <!-- Users Management -->
-        <UsersManagement v-else-if="selectedMenuItem === 'members'" />
-        
-        <!-- Scheduled Messages Management -->
-        <ScheduledMessagesManagement v-else-if="selectedMenuItem === 'messages'" />
-        
-        <!-- Settings Management -->
-        <SettingsManagement v-else-if="selectedMenuItem === 'settings'" />
-        
-        <!-- Membership Designs Management -->
-        <MembershipDesignsManagement v-else-if="selectedMenuItem === 'membership-designs'" />
-        
-        <!-- Premium Entry Backgrounds Management -->
-        <PremiumEntryBackgroundsManagement v-else-if="selectedMenuItem === 'premium-entry-backgrounds'" />
-        
-        <!-- Shortcuts Management -->
-        <ShortcutsManagement v-else-if="selectedMenuItem === 'shortcuts'" />
-        
-        <!-- Filter Management -->
-        <FilterManagement v-else-if="selectedMenuItem === 'filter'" />
-        
-        <!-- Violations Management -->
-        <ViolationsManagement v-else-if="selectedMenuItem === 'violations'" />
-        
-        <!-- Default placeholder for other menu items -->
-        <Card v-else>
+        <!-- Lazy loaded management components -->
+        <Suspense>
+          <template #default>
+            <!-- Login Logs Management -->
+            <LazyLoginLogsManagement v-if="selectedMenuItem === 'log'" />
+            
+            <!-- Ban Management -->
+            <LazyBanManagement v-else-if="selectedMenuItem === 'ban'" />
+            
+            <!-- Reports Management -->
+            <LazyReportsManagement v-else-if="selectedMenuItem === 'reports'" />
+            
+            <!-- Subscriptions Management -->
+            <LazySubscriptionsManagement v-else-if="selectedMenuItem === 'subscriptions'" />
+            
+            <!-- Role Groups Management -->
+            <LazyRoleGroupsManagement v-else-if="selectedMenuItem === 'permissions'" />
+            
+            <!-- Symbols Management -->
+            <LazySymbolsManagement v-else-if="selectedMenuItem === 'symbols'" />
+            
+            <!-- Rooms Management -->
+            <LazyRoomsManagement v-else-if="selectedMenuItem === 'rooms'" />
+            
+            <!-- Site Management -->
+            <LazySiteManagement v-else-if="selectedMenuItem === 'site'" />
+            
+            <!-- Users Management -->
+            <LazyUsersManagement v-else-if="selectedMenuItem === 'members'" />
+            
+            <!-- Scheduled Messages Management -->
+            <LazyScheduledMessagesManagement v-else-if="selectedMenuItem === 'messages'" />
+            
+            <!-- Settings Management -->
+            <LazySettingsManagement v-else-if="selectedMenuItem === 'settings'" />
+            
+            <!-- Membership Designs Management -->
+            <LazyMembershipDesignsManagement v-else-if="selectedMenuItem === 'membership-designs'" />
+            
+            <!-- Premium Entry Backgrounds Management -->
+            <LazyPremiumEntryBackgroundsManagement v-else-if="selectedMenuItem === 'premium-entry-backgrounds'" />
+            
+            <!-- Shortcuts Management -->
+            <LazyShortcutsManagement v-else-if="selectedMenuItem === 'shortcuts'" />
+            
+            <!-- Filter Management -->
+            <LazyFilterManagement v-else-if="selectedMenuItem === 'filter'" />
+            
+            <!-- Violations Management -->
+            <LazyViolationsManagement v-else-if="selectedMenuItem === 'violations'" />
+            
+            <!-- Default placeholder for other menu items -->
+            <Card v-else>
           <template #content>
             <div class="text-center py-12">
               <i :class="[currentMenuItem?.icon || 'pi pi-info-circle', 'text-6xl text-gray-300 mb-4']"></i>
@@ -141,6 +144,18 @@
             </div>
           </template>
         </Card>
+          </template>
+          <template #fallback>
+            <Card>
+              <template #content>
+                <div class="text-center py-12">
+                  <i class="pi pi-spin pi-spinner text-4xl text-gray-400 mb-4"></i>
+                  <p class="text-gray-500">جاري التحميل...</p>
+                </div>
+              </template>
+            </Card>
+          </template>
+        </Suspense>
       </main>
     </div>
   </div>

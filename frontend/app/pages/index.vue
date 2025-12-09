@@ -219,8 +219,8 @@
       </footer>
     </div>
 
-    <!-- Message Dialog -->
-    <MessageDialog />
+    <!-- Message Dialog - Lazy loaded -->
+    <LazyMessageDialog />
   </div>
 </template>
 

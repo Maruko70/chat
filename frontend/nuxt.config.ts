@@ -4,6 +4,43 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
   
+  // Performance optimizations
+  experimental: {
+    payloadExtraction: false, // Disable payload extraction for better performance
+  },
+  
+  // Build optimizations
+  build: {
+    transpile: ['moment'], // Transpile moment.js for better compatibility
+  },
+  
+  // Vite optimizations
+  vite: {
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor': ['vue', 'vue-router'],
+            'primevue': ['primevue'],
+            'moment': ['moment'],
+          },
+        },
+      },
+    },
+    optimizeDeps: {
+      include: ['moment', 'primevue'],
+    },
+  },
+  
+  // Component auto-imports optimization
+  // Components are automatically lazy loaded when using Lazy prefix
+  components: [
+    {
+      path: '~/app/components',
+      pathPrefix: false,
+    },
+  ],
+  
   app: {
     head: {
       htmlAttrs: {
@@ -23,7 +60,9 @@ export default defineNuxtConfig({
           id: 'site-colors-initial'
         },
       ]
-    }
+    },
+    // Page transition optimizations
+    pageTransition: { name: 'page', mode: 'out-in' },
   },
 
   alias: {
