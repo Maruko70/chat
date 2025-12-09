@@ -51,7 +51,7 @@ export const useChatStore = defineStore('chat', {
           if (import.meta.client) {
             const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
             const cache = useLocalStorageCache()
-            cache.setCachedData('rooms', rooms, 5 * 60 * 1000) // 5 minutes
+            cache.setCachedData('rooms', rooms, 120 * 60 * 1000) // 2 hours (120 minutes)
           }
           return rooms
         } finally {
@@ -69,7 +69,7 @@ export const useChatStore = defineStore('chat', {
           if (import.meta.client) {
             const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
             const cache = useLocalStorageCache()
-            cache.setCachedData('rooms', bootstrap.rooms, 5 * 60 * 1000)
+            cache.setCachedData('rooms', bootstrap.rooms, 120 * 60 * 1000) // 2 hours
           }
           // Fetch fresh data in background
           this.fetchRoomsInBackground()
@@ -104,7 +104,7 @@ export const useChatStore = defineStore('chat', {
         if (import.meta.client) {
           const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
           const cache = useLocalStorageCache()
-          cache.setCachedData('rooms', rooms, 5 * 60 * 1000)
+          cache.setCachedData('rooms', rooms, 120 * 60 * 1000) // 2 hours
         }
         return rooms
       } finally {
@@ -120,7 +120,7 @@ export const useChatStore = defineStore('chat', {
         if (import.meta.client) {
           const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
           const cache = useLocalStorageCache()
-          cache.setCachedData('rooms', rooms, 5 * 60 * 1000)
+          cache.setCachedData('rooms', rooms, 120 * 60 * 1000) // 2 hours
         }
         this.rooms = rooms
       } catch (error) {

@@ -67,8 +67,8 @@ class RoomController extends Controller
             ? "rooms_user_{$user->id}" 
             : 'rooms_public';
         
-        // Cache for 5 minutes (rooms change less frequently)
-        $rooms = Cache::remember($cacheKey, 300, function () use ($user, $request) {
+        // Cache for 1 hour (3600 seconds) - rooms change less frequently
+        $rooms = Cache::remember($cacheKey, 3600, function () use ($user, $request) {
             if ($user) {
                 return Room::where('is_public', true)
                     ->orWhereHas('users', function ($query) use ($request) {

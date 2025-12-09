@@ -47,8 +47,8 @@ class WallPostController extends Controller
         // Cache key includes room ID, user ID (for is_liked), page number, and version
         $cacheKey = "wall_posts_room_{$roomId}_user_{$userId}_page_{$page}_v{$cacheVersion}";
         
-        // Cache for 5 minutes (wall posts change less frequently than messages)
-        $wallPosts = Cache::remember($cacheKey, 300, function () use ($roomId, $userId) {
+        // Cache for 1 hour (3600 seconds) - wall posts change less frequently than messages
+        $wallPosts = Cache::remember($cacheKey, 3600, function () use ($roomId, $userId) {
             $posts = WallPost::where('room_id', $roomId)
                 ->with(['user.media', 'user.roleGroups', 'likes.user', 'comments.user.media'])
                 ->withCount('likes')
@@ -407,8 +407,8 @@ class WallPostController extends Controller
         // Cache key for wall creator
         $cacheKey = "wall_creator_room_{$roomId}";
         
-        // Cache for 5 minutes (wall creator changes less frequently)
-        $result = Cache::remember($cacheKey, 300, function () use ($roomId) {
+        // Cache for 1 hour (3600 seconds) - wall creator changes less frequently
+        $result = Cache::remember($cacheKey, 3600, function () use ($roomId) {
             // Get top 3 creators
             $topCreators = User::select('users.*', DB::raw('COUNT(wall_post_likes.id) as total_likes'))
                 ->join('wall_posts', 'users.id', '=', 'wall_posts.user_id')

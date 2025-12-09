@@ -13,6 +13,7 @@ use App\Services\UserAgentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -379,6 +380,39 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
+        // Create cache key based on username and password hash (for security)
+        $passwordHash = hash('sha256', $request->password);
+        $cacheKey = "background_auth_user_{$request->username}_{$passwordHash}";
+
+        // Try to get cached user data first (cache for 30 minutes)
+        // Note: We don't cache the token, as tokens should be fresh each time
+        $cachedUserData = Cache::get($cacheKey);
+        if ($cachedUserData !== null) {
+            $user = User::where('username', $request->username)
+                ->where('is_guest', false)
+                ->first();
+            
+            // Check if user was updated since cache (using updated_at timestamp)
+            if ($user && $cachedUserData['last_edit_time'] === $user->updated_at->toISOString()) {
+                // Check if user is still not banned
+                $bannedUser = BannedUser::where('user_id', $user->id)->active()->first();
+                if (!$bannedUser) {
+                    // User hasn't changed and is not banned, create fresh token and return
+                    $token = $user->createToken('auth_token')->plainTextToken;
+                    $user->load('media', 'roleGroups');
+                    
+                    return response()->json([
+                        'valid' => true,
+                        'user' => $user,
+                        'token' => $token,
+                        'last_edit_time' => $user->updated_at->toISOString(),
+                    ]);
+                }
+            }
+            // User was updated or banned, clear cache and continue with fresh auth
+            Cache::forget($cacheKey);
+        }
+
         $user = User::where('username', $request->username)
             ->where('is_guest', false)
             ->first();
@@ -435,12 +469,22 @@ class AuthController extends Controller
         // Load media relationship for avatar_url and role groups
         $user->load('media', 'roleGroups');
 
-        return response()->json([
+        $response = [
             'valid' => true,
             'user' => $user,
             'token' => $token,
             'last_edit_time' => $user->updated_at->toISOString(),
-        ]);
+        ];
+
+        // Cache user data (without token) for 30 minutes (1800 seconds)
+        // This allows us to skip database queries on subsequent requests
+        // Token is always generated fresh for security
+        Cache::put($cacheKey, [
+            'user_id' => $user->id,
+            'last_edit_time' => $user->updated_at->toISOString(),
+        ], 1800);
+
+        return response()->json($response);
     }
 
     /**

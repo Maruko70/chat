@@ -174,7 +174,7 @@ class BootstrapController extends Controller
                     $cacheVersion = Cache::get("wall_posts_cache_version_room_{$generalRoom->id}", 1);
                     $cacheKey = "wall_posts_room_{$generalRoom->id}_user_{$user->id}_page_1_v{$cacheVersion}";
                     
-                    $wallPosts = Cache::remember($cacheKey, 300, function () use ($generalRoom, $user) {
+                    $wallPosts = Cache::remember($cacheKey, 3600, function () use ($generalRoom, $user) {
                         $posts = WallPost::where('room_id', $generalRoom->id)
                             ->with(['user.media', 'user.roleGroups'])
                             ->withCount('likes')
@@ -197,7 +197,7 @@ class BootstrapController extends Controller
                     
                     // Get wall creator for general room
                     $wallCreatorCacheKey = "wall_creator_room_{$generalRoom->id}";
-                    $wallCreator = Cache::remember($wallCreatorCacheKey, 300, function () use ($generalRoom) {
+                    $wallCreator = Cache::remember($wallCreatorCacheKey, 3600, function () use ($generalRoom) {
                         $topCreators = User::select('users.*', DB::raw('COUNT(wall_post_likes.id) as total_likes'))
                             ->join('wall_posts', 'users.id', '=', 'wall_posts.user_id')
                             ->join('wall_post_likes', 'wall_posts.id', '=', 'wall_post_likes.wall_post_id')

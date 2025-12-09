@@ -6092,7 +6092,7 @@ const fetchWallPosts = async (force = false) => {
     const cacheKey = `wall_posts_${roomId.value}`
     const cachedPosts = cache.getCachedData<any[]>(cacheKey)
     
-    if (cachedPosts && cachedPosts.length >= 0) {
+    if (cachedPosts && Array.isArray(cachedPosts) && cachedPosts.length > 0) {
       // Show cached data immediately
       wallPosts.value = cachedPosts
       // Fetch fresh data in background
@@ -6123,7 +6123,7 @@ const fetchWallPosts = async (force = false) => {
       const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
       const cache = useLocalStorageCache()
       const cacheKey = `wall_posts_${roomId.value}`
-      cache.setCachedData(cacheKey, posts, 5 * 60 * 1000) // 5 minutes
+      cache.setCachedData(cacheKey, posts, 120 * 60 * 1000) // 2 hours (120 minutes)
     }
     
     // Fetch wall creator
@@ -6156,15 +6156,28 @@ const fetchWallPostsInBackground = async () => {
       }
     })
     
-    // Update cache and state silently
+    // Merge with existing posts, keeping unique posts by ID
+    const existingPostIds = new Set(wallPosts.value.map((p: any) => p.id))
+    const newPosts = posts.filter((p: any) => !existingPostIds.has(p.id))
+    
+    // Combine existing and new posts, then sort by created_at descending (newest first)
+    const allPosts = [...wallPosts.value, ...newPosts].sort((a: any, b: any) => {
+      const dateA = new Date(a.created_at).getTime()
+      const dateB = new Date(b.created_at).getTime()
+      return dateB - dateA // Descending order (newest first)
+    })
+    
+    // Update state with merged and sorted posts
+    wallPosts.value = allPosts
+    
+    // Update cache with merged posts
     if (import.meta.client && roomId.value) {
       const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
       const cache = useLocalStorageCache()
       const cacheKey = `wall_posts_${roomId.value}`
-      cache.setCachedData(cacheKey, posts, 5 * 60 * 1000)
+      cache.setCachedData(cacheKey, allPosts, 120 * 60 * 1000) // 2 hours
     }
     
-    wallPosts.value = posts
     // Fetch wall creator in background
     await fetchWallCreator()
   } catch (error) {
@@ -6215,7 +6228,7 @@ const postToWall = async () => {
         const { useLocalStorageCache } = await import('~~/app/composables/useLocalStorageCache')
         const cache = useLocalStorageCache()
         const cacheKey = `wall_posts_${roomId.value}`
-        cache.setCachedData(cacheKey, wallPosts.value, 5 * 60 * 1000)
+        cache.setCachedData(cacheKey, wallPosts.value, 120 * 60 * 1000) // 2 hours
       }
     }
     
@@ -8640,20 +8653,26 @@ const setupChannelListeners = (channel: any, currentRoomId: string) => {
 
   // Listen for new wall posts
   channel.listen('.wall.post.sent', (data: any) => {
-    if (String(data.room_id) === String(currentRoomId)) {
+    // Check if this post is for the current room
+    const postRoomId = String(data.room_id || data.room?.id || '')
+    const currentRoomIdStr = String(roomId.value || currentRoomId || '')
+    
+    if (postRoomId === currentRoomIdStr && postRoomId) {
       const existingPost = wallPosts.value.find((p: any) => p.id === data.id)
       if (!existingPost) {
         // Add image URL if exists
         if (data.image) {
           data.image_url = data.image.startsWith('http') ? data.image : `${useRuntimeConfig().public.apiBaseUrl.replace('/api', '')}/storage/${data.image}`
         }
+        // Add to beginning of array (newest first)
         wallPosts.value.unshift(data)
         // Update cache with new post (non-blocking)
         if (import.meta.client && roomId.value) {
           import('~~/app/composables/useLocalStorageCache').then(({ useLocalStorageCache }) => {
             const cache = useLocalStorageCache()
             const cacheKey = `wall_posts_${roomId.value}`
-            cache.setCachedData(cacheKey, wallPosts.value, 5 * 60 * 1000)
+            // Cache for 2 hours (120 minutes)
+            cache.setCachedData(cacheKey, wallPosts.value, 120 * 60 * 1000)
           }).catch(() => {})
         }
         // Refresh wall creator
@@ -9097,7 +9116,18 @@ onMounted(async () => {
     return
   }
 
-  // Load room first (blocking - needed for room data)
+  // Background authentication FIRST - refresh token before fetching room
+  // This ensures we have a valid, fresh token for the API call
+  if (authStore.isAuthenticated) {
+    try {
+      await authStore.backgroundAuth()
+    } catch (error) {
+      // If background auth fails, still try to fetch room (might work with existing token)
+      console.error('Background auth error:', error)
+    }
+  }
+  
+  // Load room (blocking - needed for room data)
   try {
     await chatStore.fetchRoom(roomId.value)
     // Password validation successful - reset flag
@@ -9105,13 +9135,6 @@ onMounted(async () => {
     
     // Focus on message input immediately after room is loaded
     focusMessageInput()
-    
-    // Background authentication - refresh token and check user status
-    // This runs in the background without blocking the UI
-    authStore.backgroundAuth().catch((error) => {
-      // Silently handle errors - don't interrupt user experience
-      console.error('Background auth error:', error)
-    })
     
     // Load bootstrap data first (synchronously from cache, then async refresh)
     // This ensures we show cached data immediately
